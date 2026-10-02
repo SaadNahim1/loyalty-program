@@ -29,6 +29,7 @@ export interface CustomerProfile {
   rewards: RewardVoucher[];
   history: StampRecord[];
   lastScanTimestamp?: number;
+  isRegistered?: boolean;
 }
 
 export interface StoreRewardConfig {

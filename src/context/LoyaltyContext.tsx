@@ -281,6 +281,7 @@ export const LoyaltyProvider: React.FC<{ children: React.ReactNode }> = ({ child
         ...prev,
         name: formattedName,
         phone: formattedPhone,
+        isRegistered: true,
       };
       // Keep database in sync
       setCustomersDatabase((db) => {

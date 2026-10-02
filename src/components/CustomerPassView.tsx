@@ -1,7 +1,8 @@
 import React from 'react';
-import { CreditCard, QrCode, Gift, History, Printer, Phone, CheckCircle2, Database, Lock } from 'lucide-react';
+import { CreditCard, QrCode, Gift, History, Printer, Phone, CheckCircle2, Database, Lock, User } from 'lucide-react';
 import { useLoyalty } from '../context/LoyaltyContext';
 import { StampCard } from './StampCard';
+import { CustomerRegistrationView } from './CustomerRegistrationView';
 import { RewardsWallet } from './RewardsWallet';
 import { HistoryActivity } from './HistoryActivity';
 import { TransactionHistory } from './TransactionHistory';
@@ -14,7 +15,6 @@ export const CustomerPassView: React.FC = () => {
     setActiveTab,
     customer,
     setIsScannerOpen,
-    setIsProfileModalOpen,
     customersDatabase,
     isStaffAuthenticated,
     setIsStaffLoginModalOpen,
@@ -28,49 +28,39 @@ export const CustomerPassView: React.FC = () => {
       {activeTab !== 'owner_dashboard' && (
         <div className="max-w-xl mx-auto bg-stone-900 text-stone-100 rounded-3xl p-5 border border-stone-800 shadow-lg flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <button
-              onClick={() => setIsProfileModalOpen(true)}
-              className="relative w-12 h-12 rounded-2xl bg-amber-500 text-stone-950 font-bold flex items-center justify-center text-base shrink-0 shadow-sm font-display hover:opacity-90 transition-opacity"
-              title="Clique para editar nome e telefone"
-            >
-              {customer.name.slice(0, 2).toUpperCase()}
+            <div className="relative w-12 h-12 rounded-2xl bg-amber-500 text-stone-950 font-bold flex items-center justify-center text-base shrink-0 shadow-sm font-display">
+              {customer.phone ? customer.name.slice(0, 2).toUpperCase() : <User className="w-6 h-6 text-stone-950" />}
               {customer.phone && (
                 <span className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-emerald-500 text-white flex items-center justify-center border border-stone-900">
                   <CheckCircle2 className="w-3 h-3" />
                 </span>
               )}
-            </button>
+            </div>
             <div>
               <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setIsProfileModalOpen(true)}
-                  className="font-bold text-base text-amber-100 hover:text-amber-300 transition-colors flex items-center gap-1.5 text-left"
-                >
-                  <span>{customer.name}</span>
-                  <span className="text-[10px] font-semibold text-stone-400 bg-stone-800 px-2 py-0.5 rounded-full border border-stone-700">
-                    Editar
+                <span className="font-bold text-base text-amber-100">
+                  {customer.phone ? customer.name : 'Novo Cliente'}
+                </span>
+                {customer.phone ? (
+                  <span className="text-[10px] font-semibold text-emerald-400 bg-emerald-950/80 px-2 py-0.5 rounded-full border border-emerald-800 flex items-center gap-1">
+                    <CheckCircle2 className="w-2.5 h-2.5" />
+                    Ativo
                   </span>
-                </button>
+                ) : (
+                  <span className="text-[10px] font-semibold text-amber-400 bg-amber-950/80 px-2 py-0.5 rounded-full border border-amber-800">
+                    Registo Pendente
+                  </span>
+                )}
               </div>
               <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-stone-400 mt-0.5">
                 <span className="font-mono text-stone-300 tabular-nums">#{customer.memberId}</span>
-                {customer.phone ? (
+                {customer.phone && (
                   <>
                     <span aria-hidden="true">·</span>
                     <span className="font-mono text-emerald-400 flex items-center gap-1">
                       <Phone className="w-3 h-3" />
                       {customer.phone}
                     </span>
-                  </>
-                ) : (
-                  <>
-                    <span aria-hidden="true">·</span>
-                    <button
-                      onClick={() => setIsProfileModalOpen(true)}
-                      className="text-amber-400 hover:underline text-[11px]"
-                    >
-                      + Adicionar Nº
-                    </button>
                   </>
                 )}
                 <span aria-hidden="true">·</span>
@@ -184,7 +174,9 @@ export const CustomerPassView: React.FC = () => {
 
       {/* Main Tab Content */}
       <main className="transition-all">
-        {activeTab === 'stamp_card' && <StampCard />}
+        {activeTab === 'stamp_card' && (
+          !customer.phone ? <CustomerRegistrationView /> : <StampCard />
+        )}
         {activeTab === 'rewards' && <RewardsWallet />}
         {activeTab === 'counter_stand' && <CounterQRStand />}
         {activeTab === 'history' && <TransactionHistory />}
