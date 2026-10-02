@@ -1,0 +1,44 @@
+{
+  "entities": {
+    "Customer": {
+      "title": "Customer",
+      "description": "A customer profile enrolled in the loyalty card program.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "phone": { "type": "string" },
+        "email": { "type": "string" },
+        "memberId": { "type": "string" },
+        "memberSince": { "type": "string" },
+        "currentStamps": { "type": "number" },
+        "completedCardsCount": { "type": "number" },
+        "lifetimeStampsEarned": { "type": "number" },
+        "rewards": { "type": "array" },
+        "history": { "type": "array" },
+        "lastScanTimestamp": { "type": "number" }
+      },
+      "required": ["id", "name", "currentStamps", "lifetimeStampsEarned"]
+    },
+    "StoreConfig": {
+      "title": "StoreConfig",
+      "description": "Store level configurations such as the 8th treat reward.",
+      "type": "object",
+      "properties": {
+        "treatTitle": { "type": "string" },
+        "treatDescription": { "type": "string" }
+      },
+      "required": ["treatTitle", "treatDescription"]
+    }
+  },
+  "firestore": {
+    "/customers/{customerId}": {
+      "schema": "Customer",
+      "description": "Registered customer loyalty profiles with stamp balances and reward vouchers."
+    },
+    "/store/config": {
+      "schema": "StoreConfig",
+      "description": "Global store settings and active treat promotion configuration."
+    }
+  }
+}

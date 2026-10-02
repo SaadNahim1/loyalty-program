@@ -1,0 +1,6 @@
+{
+  "name": "Pitstop Roast & Bakery Loyalty Club",
+  "description": "Digital stamp card and QR loyalty rewards program for the gas station coffee shop & artisan bakery.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
