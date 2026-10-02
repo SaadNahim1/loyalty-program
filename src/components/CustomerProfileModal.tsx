@@ -5,12 +5,12 @@ import { useLoyalty } from '../context/LoyaltyContext';
 export const CustomerProfileModal: React.FC = () => {
   const { isProfileModalOpen, setIsProfileModalOpen, customer, updateCustomerProfile } = useLoyalty();
 
-  const [name, setName] = useState(customer.name);
+  const [name, setName] = useState(customer.name === 'Novo Cliente' || customer.name === 'Cliente Pitstop' ? '' : customer.name);
   const [phone, setPhone] = useState(customer.phone);
 
   useEffect(() => {
     if (isProfileModalOpen) {
-      setName(customer.name);
+      setName(customer.name === 'Novo Cliente' || customer.name === 'Cliente Pitstop' ? '' : customer.name);
       setPhone(customer.phone);
     }
   }, [isProfileModalOpen, customer]);
@@ -19,6 +19,7 @@ export const CustomerProfileModal: React.FC = () => {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!name.trim()) return;
     updateCustomerProfile(name, phone);
     setIsProfileModalOpen(false);
   };
@@ -34,7 +35,7 @@ export const CustomerProfileModal: React.FC = () => {
             </div>
             <div>
               <h3 className="font-bold text-base text-amber-100 font-display">
-                {!customer.phone ? 'Ativar Cartão de Fidelização' : 'Dados do Titular'}
+                {!customer.phone ? '🎉 Ativar o Seu Cartão' : 'Dados do Titular'}
               </h3>
               <p className="text-xs text-stone-400">
                 {!customer.phone
@@ -55,11 +56,11 @@ export const CustomerProfileModal: React.FC = () => {
         <form onSubmit={handleSubmit} className="p-6 space-y-4 overflow-y-auto">
           {!customer.phone && (
             <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-3.5 text-xs text-amber-900 flex items-start gap-2.5">
-              <span className="text-lg">🎉</span>
+              <span className="text-xl">☕</span>
               <div>
-                <p className="font-bold text-amber-950">Primeira vez na Cafetaria?</p>
-                <p className="text-[11px] text-amber-900/90 mt-0.5">
-                  Introduza o seu nome e telemóvel para ativar o seu cartão. Fica gravado no seu telemóvel para os próximos scans!
+                <p className="font-bold text-amber-950">Bem-vindo à Pitstop Roast & Bakery!</p>
+                <p className="text-[11px] text-amber-900/90 mt-0.5 leading-relaxed">
+                  Ganhou o seu 1º carimbo! Introduza o seu nome e telemóvel para ativar o seu cartão digital. Fica gravado no seu telemóvel para as próximas visitas!
                 </p>
               </div>
             </div>

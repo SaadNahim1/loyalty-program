@@ -13,6 +13,7 @@ export const StampCard: React.FC = () => {
     storeReward,
     setIsConfigRewardOpen,
     setIsProfileModalOpen,
+    isStaffAuthenticated,
   } = useLoyalty();
 
   const [justStampedIndex, setJustStampedIndex] = useState<number | null>(null);
@@ -47,14 +48,16 @@ export const StampCard: React.FC = () => {
           </div>
         </div>
 
-        <button
-          onClick={() => setIsConfigRewardOpen(true)}
-          className="px-3 py-1.5 rounded-xl bg-amber-800/80 hover:bg-amber-800 text-amber-200 hover:text-white text-xs font-semibold flex items-center gap-1.5 transition-colors border border-amber-700/80 whitespace-nowrap shrink-0"
-          title="Alterar a oferta atribuída aos 8 carimbos"
-        >
-          <SlidersHorizontal className="w-3.5 h-3.5" />
-          <span>Alterar Oferta</span>
-        </button>
+        {isStaffAuthenticated && (
+          <button
+            onClick={() => setIsConfigRewardOpen(true)}
+            className="px-3 py-1.5 rounded-xl bg-amber-800/80 hover:bg-amber-800 text-amber-200 hover:text-white text-xs font-semibold flex items-center gap-1.5 transition-colors border border-amber-700/80 whitespace-nowrap shrink-0"
+            title="Alterar a oferta atribuída aos 8 carimbos"
+          >
+            <SlidersHorizontal className="w-3.5 h-3.5" />
+            <span>Alterar Oferta</span>
+          </button>
+        )}
       </div>
 
       {/* Identificação do Cliente / Guardar com Telemóvel Banner */}
@@ -67,7 +70,9 @@ export const StampCard: React.FC = () => {
           </div>
           <div>
             <div className="flex items-center gap-1.5">
-              <span className="font-bold text-stone-900">{customer.name}</span>
+              <span className="font-bold text-stone-900">
+                {customer.phone ? customer.name : 'Cartão Não Registado'}
+              </span>
               {customer.phone && (
                 <span className="text-[10px] bg-emerald-100 text-emerald-800 px-1.5 py-0.2 rounded font-mono font-medium">
                   {customer.phone}
@@ -77,43 +82,49 @@ export const StampCard: React.FC = () => {
             <p className="text-[11px] text-stone-500">
               {customer.phone
                 ? 'Cartão protegido e associado ao seu número.'
-                : 'Guarde o cartão com o seu contacto para não perder carimbos.'}
+                : 'Registe o seu nome e telemóvel para guardar os seus carimbos.'}
             </p>
           </div>
         </div>
 
         <button
           onClick={() => setIsProfileModalOpen(true)}
-          className="px-3 py-1.5 rounded-xl bg-stone-100 hover:bg-stone-200 text-stone-800 font-semibold text-xs whitespace-nowrap transition-colors border border-stone-200 shrink-0"
+          className={`px-3 py-1.5 rounded-xl font-semibold text-xs whitespace-nowrap transition-colors border shrink-0 ${
+            customer.phone
+              ? 'bg-stone-100 hover:bg-stone-200 text-stone-800 border-stone-200'
+              : 'bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold border-amber-400 shadow-xs'
+          }`}
         >
-          {customer.phone ? 'Alterar' : 'Guardar Nº'}
+          {customer.phone ? 'Alterar' : 'Ativar Cartão'}
         </button>
       </div>
 
-      {/* Customer Switcher Bar (Demo) */}
-      <div className="bg-white rounded-2xl p-3 border border-stone-200 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs">
-        <div className="flex items-center gap-2 text-stone-600">
-          <Smartphone className="w-4 h-4 text-amber-700" />
-          <span>Simulador de Clientes:</span>
-        </div>
+      {/* Staff Demo Switcher (Only visible to authenticated staff with PIN) */}
+      {isStaffAuthenticated && (
+        <div className="bg-amber-50/80 rounded-2xl p-3 border border-amber-200 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs">
+          <div className="flex items-center gap-2 text-amber-900 font-semibold">
+            <Smartphone className="w-4 h-4 text-amber-800" />
+            <span>Modo Operador (Alternar Clientes):</span>
+          </div>
 
-        <div className="flex items-center gap-1 bg-stone-100 p-1 rounded-xl">
-          {allProfiles.map((p) => (
-            <button
-              key={p.id}
-              onClick={() => selectCustomerProfile(p.id)}
-              className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
-                customer.id === p.id
-                  ? 'bg-stone-900 text-white shadow-xs'
-                  : 'text-stone-600 hover:text-stone-900'
-              }`}
-              title={`Ver cartão de ${p.name}`}
-            >
-              {p.name.split(' ')[0]} ({p.currentStamps}/8)
-            </button>
-          ))}
+          <div className="flex items-center gap-1 bg-white p-1 rounded-xl border border-amber-200">
+            {allProfiles.map((p) => (
+              <button
+                key={p.id}
+                onClick={() => selectCustomerProfile(p.id)}
+                className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
+                  customer.id === p.id
+                    ? 'bg-amber-800 text-white shadow-xs'
+                    : 'text-stone-600 hover:text-stone-900'
+                }`}
+                title={`Ver cartão de ${p.name}`}
+              >
+                {p.name.split(' ')[0]} ({p.currentStamps}/8)
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Physical Punch Card Container */}
       <div className="relative rounded-3xl bg-[#fdfbf7] border-2 border-stone-200 shadow-xl overflow-hidden stamp-card-pattern transition-all">

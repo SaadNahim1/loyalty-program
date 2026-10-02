@@ -67,6 +67,23 @@ const REWARD_CONFIG_KEY = 'coffeebakery_reward_config';
 const STAFF_AUTH_KEY = 'coffeebakery_staff_session';
 const DEFAULT_STAFF_PIN = '1234';
 
+const createFreshGuestProfile = (): CustomerProfile => {
+  const memberNumber = Math.floor(10000 + Math.random() * 90000);
+  return {
+    id: `cust-${Date.now()}`,
+    name: 'Novo Cliente',
+    phone: '',
+    email: '',
+    memberId: `PIT-${memberNumber}`,
+    memberSince: 'Hoje',
+    currentStamps: 0,
+    completedCardsCount: 0,
+    lifetimeStampsEarned: 0,
+    rewards: [],
+    history: [],
+  };
+};
+
 const LoyaltyContext = createContext<LoyaltyContextType | undefined>(undefined);
 
 export const LoyaltyProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -81,15 +98,21 @@ export const LoyaltyProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return INITIAL_CUSTOMERS_DATABASE;
   });
 
-  // Current active customer profile
+  // Current active customer profile (Fresh personal card for real clients)
   const [customer, setCustomer] = useState<CustomerProfile>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) return JSON.parse(saved);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        // If it was the demo account 'cust-1' (Ana Silva) or mock accounts, reset to a fresh real profile
+        if (parsed && !['cust-1', 'cust-2', 'cust-3'].includes(parsed.id)) {
+          return parsed;
+        }
+      }
     } catch {
       // Ignore
     }
-    return INITIAL_CUSTOMERS_DATABASE[0];
+    return createFreshGuestProfile();
   });
 
   const [storeReward, setStoreReward] = useState<StoreRewardConfig>(() => {
@@ -225,23 +248,52 @@ export const LoyaltyProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const formattedName = name.trim() || 'Cliente VIP';
     const formattedPhone = phone.trim();
 
+    // Check if phone matches an existing account in database
+    if (formattedPhone) {
+      const cleanPhone = formattedPhone.replace(/\D/g, '');
+      const existing = customersDatabase.find((c) => {
+        if (!c.phone) return false;
+        return c.phone.replace(/\D/g, '') === cleanPhone;
+      });
+
+      if (existing && existing.id !== customer.id) {
+        // Recover existing account and merge any newly scanned stamp
+        const updated: CustomerProfile = {
+          ...existing,
+          currentStamps: Math.min(8, existing.currentStamps + (customer.currentStamps > 0 ? 1 : 0)),
+          lifetimeStampsEarned: existing.lifetimeStampsEarned + (customer.currentStamps > 0 ? 1 : 0),
+          lastScanTimestamp: Date.now(),
+        };
+        setCustomer(updated);
+        setCustomersDatabase((db) => db.map((c) => (c.id === existing.id ? updated : c)));
+        setDoc(doc(db, 'customers', updated.id), updated).catch(() => {});
+        showToast(
+          'Bem-vindo de Volta!',
+          `Conta recuperada de ${existing.name}. Saldo: ${updated.currentStamps}/8 carimbos.`,
+          'success'
+        );
+        return;
+      }
+    }
+
     setCustomer((prev) => {
-      const updated = {
+      const updated: CustomerProfile = {
         ...prev,
         name: formattedName,
         phone: formattedPhone,
       };
       // Keep database in sync
-      setCustomersDatabase((db) =>
-        db.map((c) => (c.id === prev.id ? updated : c))
-      );
+      setCustomersDatabase((db) => {
+        const exists = db.some((c) => c.id === prev.id);
+        return exists ? db.map((c) => (c.id === prev.id ? updated : c)) : [updated, ...db];
+      });
       setDoc(doc(db, 'customers', updated.id), updated).catch(() => {});
       return updated;
     });
 
     showToast(
-      'Cartão Salvo!',
-      `O seu cartão agora pertence a ${formattedName}${formattedPhone ? ` (${formattedPhone})` : ''}.`,
+      'Cartão Ativado!',
+      `Bem-vindo(a), ${formattedName}! O seu cartão está pronto e guardado.`,
       'success'
     );
   };
@@ -494,6 +546,13 @@ export const LoyaltyProvider: React.FC<{ children: React.ReactNode }> = ({ child
       );
 
       setDoc(doc(db, 'customers', updatedCustomer.id), updatedCustomer).catch(() => {});
+
+      // If customer has no phone registered yet (first scan!), open registration onboarding modal
+      if (!prev.phone) {
+        setTimeout(() => {
+          setIsProfileModalOpen(true);
+        }, 1300);
+      }
 
       return updatedCustomer;
     });

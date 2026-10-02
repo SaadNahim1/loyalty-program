@@ -32,26 +32,35 @@ export const CounterQRStand: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const zoomCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
+  const vercelLiveUrl = 'https://loyalty-program-chi-lac.vercel.app';
   const devAppUrl = 'https://ais-dev-pjuubqjgfxehwd43yi2do6-676342438389.europe-west1.run.app';
   const publicAppUrl = 'https://ais-pre-pjuubqjgfxehwd43yi2do6-676342438389.europe-west1.run.app';
   const firebaseHostingUrl = 'https://vibrant-psyche-7q6d2.web.app';
   const currentHostUrl = typeof window !== 'undefined' ? window.location.origin : devAppUrl;
 
-  const [selectedBaseUrl, setSelectedBaseUrl] = useState<'firebase' | 'dev' | 'shared' | 'custom'>('firebase');
-  const [customUrl, setCustomUrl] = useState('');
+  const [selectedBaseUrl, setSelectedBaseUrl] = useState<'vercel' | 'auto' | 'custom' | 'dev' | 'firebase'>('vercel');
+  const [customUrl, setCustomUrl] = useState<string>(() => {
+    try {
+      return localStorage.getItem('pitstop_custom_qr_url') || '';
+    } catch {
+      return '';
+    }
+  });
   const [copied, setCopied] = useState(false);
-  const [showHelp, setShowHelp] = useState(true);
+  const [showHelp, setShowHelp] = useState(false);
   const [isZoomModalOpen, setIsZoomModalOpen] = useState(false);
 
   // Target URL based on active server
   const activeBase =
-    selectedBaseUrl === 'firebase'
+    selectedBaseUrl === 'vercel'
+      ? vercelLiveUrl
+      : selectedBaseUrl === 'auto'
+      ? currentHostUrl
+      : selectedBaseUrl === 'custom'
+      ? (customUrl.trim() || currentHostUrl)
+      : selectedBaseUrl === 'firebase'
       ? firebaseHostingUrl
-      : selectedBaseUrl === 'dev'
-      ? (currentHostUrl.includes('run.app') ? currentHostUrl : devAppUrl)
-      : selectedBaseUrl === 'shared'
-      ? publicAppUrl
-      : (customUrl.trim() || currentHostUrl);
+      : devAppUrl;
 
   const qrTargetUrl = `${activeBase}/?scan=counter`;
 
@@ -182,38 +191,61 @@ export const CounterQRStand: React.FC = () => {
           </p>
         )}
 
-        <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-amber-200">
-          <span className="text-[11px] font-bold text-amber-950">Servidor QR:</span>
-          <button
-            onClick={() => setSelectedBaseUrl('firebase')}
-            className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors ${
-              selectedBaseUrl === 'firebase'
-                ? 'bg-amber-800 text-white shadow-xs'
-                : 'bg-white text-stone-700 hover:bg-amber-100 border border-amber-300'
-            }`}
-          >
-            🔥 Firebase Hosting
-          </button>
-          <button
-            onClick={() => setSelectedBaseUrl('dev')}
-            className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors ${
-              selectedBaseUrl === 'dev'
-                ? 'bg-amber-800 text-white'
-                : 'bg-white text-stone-700 hover:bg-amber-100 border border-amber-300'
-            }`}
-          >
-            Servidor Dev
-          </button>
-          <button
-            onClick={() => setSelectedBaseUrl('shared')}
-            className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors ${
-              selectedBaseUrl === 'shared'
-                ? 'bg-amber-800 text-white'
-                : 'bg-white text-stone-700 hover:bg-amber-100 border border-amber-300'
-            }`}
-          >
-            Link Partilhado
-          </button>
+        <div className="space-y-2 pt-2 border-t border-amber-200">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[11px] font-bold text-amber-950">Origem do QR:</span>
+            <button
+              onClick={() => setSelectedBaseUrl('vercel')}
+              className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors ${
+                selectedBaseUrl === 'vercel'
+                  ? 'bg-amber-800 text-white shadow-xs'
+                  : 'bg-white text-stone-700 hover:bg-amber-100 border border-amber-300'
+              }`}
+            >
+              ▲ Vercel Live (Recomendado)
+            </button>
+            <button
+              onClick={() => setSelectedBaseUrl('auto')}
+              className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors ${
+                selectedBaseUrl === 'auto'
+                  ? 'bg-amber-800 text-white shadow-xs'
+                  : 'bg-white text-stone-700 hover:bg-amber-100 border border-amber-300'
+              }`}
+            >
+              🌐 Este Navegador
+            </button>
+            <button
+              onClick={() => setSelectedBaseUrl('custom')}
+              className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-colors ${
+                selectedBaseUrl === 'custom'
+                  ? 'bg-amber-800 text-white shadow-xs'
+                  : 'bg-white text-stone-700 hover:bg-amber-100 border border-amber-300'
+              }`}
+            >
+              ✏️ Outro Link
+            </button>
+          </div>
+
+          {selectedBaseUrl === 'custom' && (
+            <div className="flex items-center gap-2 pt-1">
+              <input
+                type="url"
+                value={customUrl}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setCustomUrl(val);
+                  try {
+                    localStorage.setItem('pitstop_custom_qr_url', val);
+                  } catch {
+                    // Ignore
+                  }
+                }}
+                placeholder="Ex: https://pitstop-fidelidade.vercel.app"
+                className="flex-1 px-3 py-1.5 rounded-lg bg-white border border-amber-300 text-xs text-stone-900 focus:outline-hidden focus:ring-2 focus:ring-amber-800 font-mono"
+              />
+              <span className="text-[10px] text-amber-900 font-medium shrink-0">O QR Code atualiza na hora</span>
+            </div>
+          )}
         </div>
 
         <div className="flex items-center justify-between gap-2 pt-1 font-mono text-[11px] text-stone-600 truncate border-t border-amber-200">
