@@ -24,6 +24,11 @@ export type ActiveTabType = 'stamp_card' | 'rewards' | 'counter_stand' | 'histor
 
 interface LoyaltyContextType {
   customer: CustomerProfile;
+  hasActiveSession: boolean;
+  isRegistrationOverlayOpen: boolean;
+  setIsRegistrationOverlayOpen: (open: boolean) => void;
+  pendingFirstScan: boolean;
+  registerCustomerSession: (name: string, phone: string) => void;
   activeTab: ActiveTabType;
   setActiveTab: (tab: ActiveTabType) => void;
   selectCustomerProfile: (profileId: string) => void;
@@ -130,6 +135,39 @@ export const LoyaltyProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [isConfigRewardOpen, setIsConfigRewardOpen] = useState(false);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+  const [isRegistrationOverlayOpen, setIsRegistrationOverlayOpen] = useState(false);
+  const [pendingFirstScan, setPendingFirstScan] = useState(false);
+  const [pendingActionAfterRegistration, setPendingActionAfterRegistration] = useState<'open_scanner' | null>(null);
+
+  // Determine if visitor has an active registered customer session
+  const hasActiveSession = Boolean(
+    customer &&
+    customer.isRegistered === true &&
+    customer.phone &&
+    customer.phone.replace(/\D/g, '').length >= 9 &&
+    customer.name &&
+    customer.name !== 'Novo Cliente' &&
+    customer.name !== 'Cliente Pitstop' &&
+    customer.name !== 'Cliente VIP'
+  );
+
+  // Automatically trigger 'New Customer Registration' overlay if visitor has no active session
+  useEffect(() => {
+    if (!hasActiveSession) {
+      setIsRegistrationOverlayOpen(true);
+    }
+  }, [hasActiveSession]);
+
+  const handleSetIsScannerOpen = (open: boolean) => {
+    if (open && !hasActiveSession) {
+      setPendingActionAfterRegistration('open_scanner');
+      setIsRegistrationOverlayOpen(true);
+      showToast('Registo Prévio Obrigatório', 'Registe o seu nome e telemóvel para abrir o leitor e ganhar carimbos!', 'info');
+      return;
+    }
+    setIsScannerOpen(open);
+  };
+
   const [isStaffAuthenticated, setIsStaffAuthenticated] = useState<boolean>(() => {
     try {
       return sessionStorage.getItem(STAFF_AUTH_KEY) === 'true';
@@ -244,59 +282,119 @@ export const LoyaltyProvider: React.FC<{ children: React.ReactNode }> = ({ child
     showToast('Oferta Atualizada', `O 8º mimo é agora: ${config.treatTitle}`, 'success');
   };
 
-  const updateCustomerProfile = (name: string, phone: string) => {
+  const registerCustomerSession = (name: string, phone: string) => {
     const formattedName = name.trim() || 'Cliente VIP';
     const formattedPhone = phone.trim();
+    const cleanDigits = formattedPhone.replace(/\D/g, '');
 
     // Check if phone matches an existing account in database
-    if (formattedPhone) {
-      const cleanPhone = formattedPhone.replace(/\D/g, '');
+    if (cleanDigits) {
       const existing = customersDatabase.find((c) => {
         if (!c.phone) return false;
-        return c.phone.replace(/\D/g, '') === cleanPhone;
+        return c.phone.replace(/\D/g, '') === cleanDigits;
       });
 
-      if (existing && existing.id !== customer.id) {
-        // Recover existing account and merge any newly scanned stamp
+      if (existing) {
+        // Recover existing account and merge any pending stamp
         const updated: CustomerProfile = {
           ...existing,
-          currentStamps: Math.min(8, existing.currentStamps + (customer.currentStamps > 0 ? 1 : 0)),
-          lifetimeStampsEarned: existing.lifetimeStampsEarned + (customer.currentStamps > 0 ? 1 : 0),
+          name: formattedName || existing.name,
+          currentStamps: Math.min(8, existing.currentStamps + (pendingFirstScan ? 1 : 0)),
+          lifetimeStampsEarned: existing.lifetimeStampsEarned + (pendingFirstScan ? 1 : 0),
           lastScanTimestamp: Date.now(),
+          isRegistered: true,
         };
         setCustomer(updated);
+        try {
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+        } catch {
+          // Ignore
+        }
         setCustomersDatabase((db) => db.map((c) => (c.id === existing.id ? updated : c)));
         setDoc(doc(db, 'customers', updated.id), updated).catch(() => {});
+        setIsRegistrationOverlayOpen(false);
         showToast(
           'Bem-vindo de Volta!',
           `Conta recuperada de ${existing.name}. Saldo: ${updated.currentStamps}/8 carimbos.`,
           'success'
         );
+
+        if (pendingFirstScan) {
+          setPendingFirstScan(false);
+        } else if (pendingActionAfterRegistration === 'open_scanner') {
+          setPendingActionAfterRegistration(null);
+          setTimeout(() => setIsScannerOpen(true), 350);
+        }
         return;
       }
     }
 
-    setCustomer((prev) => {
-      const updated: CustomerProfile = {
-        ...prev,
-        name: formattedName,
-        phone: formattedPhone,
-        isRegistered: true,
-      };
-      // Keep database in sync
-      setCustomersDatabase((db) => {
-        const exists = db.some((c) => c.id === prev.id);
-        return exists ? db.map((c) => (c.id === prev.id ? updated : c)) : [updated, ...db];
-      });
-      setDoc(doc(db, 'customers', updated.id), updated).catch(() => {});
-      return updated;
-    });
+    const memberNumber = Math.floor(10000 + Math.random() * 90000);
+    const newProfile: CustomerProfile = {
+      id: `cust-${Date.now()}`,
+      name: formattedName,
+      phone: formattedPhone,
+      email: '',
+      memberId: `PIT-${memberNumber}`,
+      memberSince: 'Hoje',
+      currentStamps: pendingFirstScan ? 1 : 0,
+      completedCardsCount: 0,
+      lifetimeStampsEarned: pendingFirstScan ? 1 : 0,
+      rewards: [],
+      history: pendingFirstScan
+        ? [
+            {
+              id: `stamp-${Date.now()}`,
+              timestamp: Date.now(),
+              source: 'qr_counter_scan',
+              note: '1º Carimbo Registado (Ativação)',
+            },
+          ]
+        : [],
+      isRegistered: true,
+    };
 
-    showToast(
-      'Cartão Ativado!',
-      `Bem-vindo(a), ${formattedName}! O seu cartão está pronto e guardado.`,
-      'success'
-    );
+    setCustomer(newProfile);
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(newProfile));
+    } catch {
+      // Ignore
+    }
+
+    setCustomersDatabase((db) => [newProfile, ...db]);
+    setDoc(doc(db, 'customers', newProfile.id), newProfile).catch(() => {});
+
+    setIsRegistrationOverlayOpen(false);
+
+    if (pendingFirstScan) {
+      setPendingFirstScan(false);
+      showToast(
+        '🎉 1º Carimbo Creditado!',
+        `Bem-vindo(a), ${formattedName}! O seu cartão está pronto com 1 carimbo.`,
+        'success'
+      );
+      setScannedStampModal({
+        isOpen: true,
+        newStampsCount: 1,
+        totalCards: 0,
+        isRewardUnlocked: false,
+        rewardTitle: storeReward.treatTitle,
+      });
+    } else {
+      showToast(
+        'Cartão Ativado!',
+        `Bem-vindo(a), ${formattedName}! O seu cartão está pronto a carimbar.`,
+        'success'
+      );
+      if (pendingActionAfterRegistration === 'open_scanner') {
+        setPendingActionAfterRegistration(null);
+        setTimeout(() => setIsScannerOpen(true), 350);
+      }
+    }
+  };
+
+  const updateCustomerProfile = (name: string, phone: string) => {
+    registerCustomerSession(name, phone);
   };
 
   const loginStaffWithPin = (pin: string): boolean => {
@@ -575,12 +673,19 @@ export const LoyaltyProvider: React.FC<{ children: React.ReactNode }> = ({ child
       if (isScanRequest) {
         hasProcessedScanRef.current = true;
         window.history.replaceState({}, document.title, window.location.pathname);
-        addSingleStamp('qr_counter_scan', 'Leitura QR Balcão (+1 Carimbo)');
+        if (!hasActiveSession) {
+          // Block awarding stamp until visitor registers their name and phone
+          setPendingFirstScan(true);
+          setIsRegistrationOverlayOpen(true);
+          showToast('1º Carimbo Detetado!', 'Registe o seu nome e telemóvel para creditar o seu 1º carimbo!', 'info');
+        } else {
+          addSingleStamp('qr_counter_scan', 'Leitura QR Balcão (+1 Carimbo)');
+        }
       }
     } catch {
       // Ignore
     }
-  }, []);
+  }, [hasActiveSession]);
 
   const redeemReward = (rewardId: string) => {
     soundFX.playScanBeep();
@@ -623,6 +728,11 @@ export const LoyaltyProvider: React.FC<{ children: React.ReactNode }> = ({ child
     <LoyaltyContext.Provider
       value={{
         customer,
+        hasActiveSession,
+        isRegistrationOverlayOpen,
+        setIsRegistrationOverlayOpen,
+        pendingFirstScan,
+        registerCustomerSession,
         activeTab,
         setActiveTab,
         selectCustomerProfile,
@@ -642,7 +752,7 @@ export const LoyaltyProvider: React.FC<{ children: React.ReactNode }> = ({ child
         showToast,
         dismissToast,
         isScannerOpen,
-        setIsScannerOpen,
+        setIsScannerOpen: handleSetIsScannerOpen,
         isConfigRewardOpen,
         setIsConfigRewardOpen,
         isProfileModalOpen,

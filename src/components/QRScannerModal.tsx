@@ -17,7 +17,13 @@ import { soundFX } from '../utils/audio';
 import { DiagnosticConsole, DiagnosticLog, CameraDiagnosticState } from './DiagnosticConsole';
 
 export const QRScannerModal: React.FC = () => {
-  const { isScannerOpen, setIsScannerOpen, addSingleStamp } = useLoyalty();
+  const { 
+    isScannerOpen, 
+    setIsScannerOpen, 
+    addSingleStamp, 
+    hasActiveSession, 
+    setIsRegistrationOverlayOpen 
+  } = useLoyalty();
   const [cameraActive, setCameraActive] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [manualCode, setManualCode] = useState('');
@@ -66,6 +72,12 @@ export const QRScannerModal: React.FC = () => {
   // Inspect devices & permission on open
   useEffect(() => {
     if (isScannerOpen) {
+      if (!hasActiveSession) {
+        setIsScannerOpen(false);
+        setIsRegistrationOverlayOpen(true);
+        return;
+      }
+
       isProcessingRef.current = false;
       addLog('info', 'Modal do Scanner Aberto. A inicializar diagnóstico de hardware...');
 

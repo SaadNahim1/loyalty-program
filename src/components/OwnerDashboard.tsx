@@ -14,8 +14,10 @@ import {
   RotateCcw,
   ExternalLink,
   Lock,
+  Printer,
 } from 'lucide-react';
 import { useLoyalty } from '../context/LoyaltyContext';
+import { CounterQRStand } from './CounterQRStand';
 
 export const OwnerDashboard: React.FC = () => {
   const {
@@ -32,6 +34,7 @@ export const OwnerDashboard: React.FC = () => {
     logoutStaff,
   } = useLoyalty();
 
+  const [caixaSection, setCaixaSection] = useState<'customers' | 'counter_stand'>('customers');
   const [searchQuery, setSearchQuery] = useState('');
   const [isNewCustomerModalOpen, setIsNewCustomerModalOpen] = useState(false);
   const [newCustomerName, setNewCustomerName] = useState('');
@@ -156,8 +159,41 @@ export const OwnerDashboard: React.FC = () => {
         </div>
       </div>
 
-      {/* KPI Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+      {/* Sub-Tabs inside Caixa: Gestão de Clientes vs Cartaz QR do Balcão */}
+      <div className="flex items-center gap-2 p-1.5 bg-stone-200/90 rounded-2xl max-w-md shadow-inner">
+        <button
+          onClick={() => setCaixaSection('customers')}
+          className={`flex-1 py-2.5 px-3.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all ${
+            caixaSection === 'customers'
+              ? 'bg-stone-900 text-amber-300 shadow-xs'
+              : 'text-stone-700 hover:text-stone-950 hover:bg-stone-100'
+          }`}
+        >
+          <Users className="w-4 h-4" />
+          <span>Gestão de Clientes ({customersDatabase.length})</span>
+        </button>
+
+        <button
+          onClick={() => setCaixaSection('counter_stand')}
+          className={`flex-1 py-2.5 px-3.5 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all ${
+            caixaSection === 'counter_stand'
+              ? 'bg-amber-500 text-stone-950 shadow-xs font-extrabold'
+              : 'text-stone-700 hover:text-stone-950 hover:bg-stone-100'
+          }`}
+        >
+          <Printer className="w-4 h-4 text-stone-950" />
+          <span>Cartaz QR Balcão</span>
+        </button>
+      </div>
+
+      {caixaSection === 'counter_stand' ? (
+        <div className="animate-in fade-in duration-200">
+          <CounterQRStand />
+        </div>
+      ) : (
+        <>
+          {/* KPI Cards */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         <div className="bg-white rounded-2xl p-4 border border-stone-200 shadow-xs flex items-center gap-3">
           <div className="w-11 h-11 rounded-2xl bg-amber-100 text-amber-900 flex items-center justify-center shrink-0">
             <Users className="w-5 h-5 text-amber-700" />
@@ -372,6 +408,8 @@ export const OwnerDashboard: React.FC = () => {
           </table>
         </div>
       </div>
+      </>
+      )}
 
       {/* Modal: Registar Novo Cliente */}
       {isNewCustomerModalOpen && (

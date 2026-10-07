@@ -50,12 +50,12 @@ export const Header: React.FC = () => {
             Ofertas
           </button>
           <button
-            onClick={() => setActiveTab('counter_stand')}
+            onClick={() => setActiveTab('history')}
             className={`hover:text-amber-300 transition-colors whitespace-nowrap ${
-              activeTab === 'counter_stand' ? 'text-amber-400 font-semibold' : ''
+              activeTab === 'history' ? 'text-amber-400 font-semibold' : ''
             }`}
           >
-            Cartaz Balcão
+            Histórico
           </button>
 
           {isStaffAuthenticated && (
@@ -68,7 +68,7 @@ export const Header: React.FC = () => {
               }`}
             >
               <Database className="w-3.5 h-3.5" />
-              <span>Base de Dados (Caixa)</span>
+              <span>Área de Caixa</span>
               <span className="text-[10px] bg-stone-900 text-amber-400 px-1.5 py-0.2 rounded-full font-mono">
                 {customersDatabase.length}
               </span>

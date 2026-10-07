@@ -22,6 +22,13 @@ export const CustomerPassView: React.FC = () => {
 
   const unredeemedRewardsCount = customer.rewards.filter((r) => !r.isRedeemed).length;
 
+  // Protect counter_stand tab: if customer is not authenticated staff, redirect to stamp_card
+  React.useEffect(() => {
+    if (activeTab === 'counter_stand' && !isStaffAuthenticated) {
+      setActiveTab('stamp_card');
+    }
+  }, [activeTab, isStaffAuthenticated, setActiveTab]);
+
   return (
     <div className="space-y-6 pb-20 md:pb-8">
       {/* Top Customer Info Bar (Only shown on customer tabs, hidden on owner dashboard for focus) */}
@@ -73,17 +80,8 @@ export const CustomerPassView: React.FC = () => {
 
           <div className="flex items-center gap-2 w-full sm:w-auto">
             <button
-              onClick={() => setActiveTab('counter_stand')}
-              className="flex-1 sm:flex-none py-2 px-3 rounded-xl bg-stone-800 hover:bg-stone-700 text-stone-200 text-xs font-medium flex items-center justify-center gap-1.5 border border-stone-700 transition-colors"
-              title="Ver cartaz para imprimir no balcão"
-            >
-              <Printer className="w-4 h-4 text-amber-400" />
-              <span>Cartaz QR</span>
-            </button>
-
-            <button
               onClick={() => setIsScannerOpen(true)}
-              className="flex-1 sm:flex-none py-2 px-3.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-stone-950 text-xs font-bold flex items-center justify-center gap-1.5 transition-colors shadow-xs"
+              className="w-full sm:w-auto py-2 px-4 rounded-xl bg-amber-400 hover:bg-amber-300 text-stone-950 text-xs font-bold flex items-center justify-center gap-1.5 transition-colors shadow-xs"
               title="Ler código QR para ganhar carimbo"
             >
               <QrCode className="w-4 h-4" />
@@ -120,17 +118,6 @@ export const CustomerPassView: React.FC = () => {
               {unredeemedRewardsCount}
             </span>
           )}
-        </button>
-
-        <button
-          onClick={() => setActiveTab('counter_stand')}
-          className={`flex-1 py-2 text-xs font-semibold rounded-xl transition-colors whitespace-nowrap px-3 ${
-            activeTab === 'counter_stand'
-              ? 'bg-white text-stone-900 shadow-xs'
-              : 'text-stone-600 hover:text-stone-900'
-          }`}
-        >
-          Cartaz Balcão
         </button>
 
         <button
@@ -178,7 +165,9 @@ export const CustomerPassView: React.FC = () => {
           !customer.phone ? <CustomerRegistrationView /> : <StampCard />
         )}
         {activeTab === 'rewards' && <RewardsWallet />}
-        {activeTab === 'counter_stand' && <CounterQRStand />}
+        {activeTab === 'counter_stand' && (
+          isStaffAuthenticated ? <CounterQRStand /> : <StampCard />
+        )}
         {activeTab === 'history' && <TransactionHistory />}
         {activeTab === 'owner_dashboard' && <OwnerDashboard />}
       </main>
@@ -210,13 +199,13 @@ export const CustomerPassView: React.FC = () => {
           </button>
 
           <button
-            onClick={() => setActiveTab('counter_stand')}
+            onClick={() => setActiveTab('history')}
             className={`min-h-[48px] flex flex-col items-center justify-center transition-colors ${
-              activeTab === 'counter_stand' ? 'text-amber-400' : 'hover:text-stone-200'
+              activeTab === 'history' ? 'text-amber-400' : 'hover:text-stone-200'
             }`}
           >
-            <Printer className="w-4 h-4" />
-            <span className="text-[9px] font-semibold mt-1">Balcão</span>
+            <History className="w-4 h-4" />
+            <span className="text-[9px] font-semibold mt-1">Histórico</span>
           </button>
 
           {isStaffAuthenticated ? (

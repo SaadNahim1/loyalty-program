@@ -13,6 +13,7 @@ import { ScanSuccessModal } from './components/ScanSuccessModal';
 import { CustomerProfileModal } from './components/CustomerProfileModal';
 import { StaffLoginModal } from './components/StaffLoginModal';
 import { NotificationToast } from './components/NotificationToast';
+import { NewCustomerRegistrationOverlay } from './components/NewCustomerRegistrationOverlay';
 import { Coffee, Gift } from 'lucide-react';
 
 const MainContent: React.FC = () => {
@@ -65,6 +66,7 @@ const MainContent: React.FC = () => {
       </footer>
 
       {/* Modals & Overlays */}
+      <NewCustomerRegistrationOverlay />
       <QRScannerModal />
       <TreatConfigModal />
       <ScanSuccessModal />
