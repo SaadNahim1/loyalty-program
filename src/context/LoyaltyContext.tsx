@@ -207,6 +207,7 @@ export const LoyaltyProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   // Real-time Firestore synchronization
   useEffect(() => {
+    if (!db) return;
     let unsubscribe: (() => void) | undefined;
     try {
       const customersRef = collection(db, 'customers');
@@ -222,7 +223,7 @@ export const LoyaltyProvider: React.FC<{ children: React.ReactNode }> = ({ child
           } else {
             // If Firestore is empty, seed with initial demo customers
             INITIAL_CUSTOMERS_DATABASE.forEach((c) => {
-              setDoc(doc(db, 'customers', c.id), c).catch(() => {});
+              if (db) setDoc(doc(db, 'customers', c.id), c).catch(() => {});
             });
           }
         },
@@ -310,8 +311,8 @@ export const LoyaltyProvider: React.FC<{ children: React.ReactNode }> = ({ child
         } catch {
           // Ignore
         }
-        setCustomersDatabase((db) => db.map((c) => (c.id === existing.id ? updated : c)));
-        setDoc(doc(db, 'customers', updated.id), updated).catch(() => {});
+        setCustomersDatabase((dbList) => dbList.map((c) => (c.id === existing.id ? updated : c)));
+        if (db) setDoc(doc(db, 'customers', updated.id), updated).catch(() => {});
         setIsRegistrationOverlayOpen(false);
         showToast(
           'Bem-vindo de Volta!',
@@ -361,8 +362,8 @@ export const LoyaltyProvider: React.FC<{ children: React.ReactNode }> = ({ child
       // Ignore
     }
 
-    setCustomersDatabase((db) => [newProfile, ...db]);
-    setDoc(doc(db, 'customers', newProfile.id), newProfile).catch(() => {});
+    setCustomersDatabase((dbList) => [newProfile, ...dbList]);
+    if (db) setDoc(doc(db, 'customers', newProfile.id), newProfile).catch(() => {});
 
     setIsRegistrationOverlayOpen(false);
 
@@ -475,7 +476,7 @@ export const LoyaltyProvider: React.FC<{ children: React.ReactNode }> = ({ child
           setCustomer(updatedCustomer);
         }
 
-        setDoc(doc(db, 'customers', updatedCustomer.id), updatedCustomer).catch(() => {});
+        if (db) setDoc(doc(db, 'customers', updatedCustomer.id), updatedCustomer).catch(() => {});
 
         return updatedCustomer;
       });
@@ -512,7 +513,7 @@ export const LoyaltyProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     setCustomersDatabase((prev) => [newCustomer, ...prev]);
     setCustomer(newCustomer);
-    setDoc(doc(db, 'customers', newCustomer.id), newCustomer).catch(() => {});
+    if (db) setDoc(doc(db, 'customers', newCustomer.id), newCustomer).catch(() => {});
     showToast('Cliente Criado', `${newCustomer.name} adicionado à base de dados com ${initialStamps} carimbo!`, 'success');
     return newCustomer;
   };
@@ -529,7 +530,7 @@ export const LoyaltyProvider: React.FC<{ children: React.ReactNode }> = ({ child
           ),
         };
         if (customer.id === customerId) setCustomer(updated);
-        setDoc(doc(db, 'customers', updated.id), updated).catch(() => {});
+        if (db) setDoc(doc(db, 'customers', updated.id), updated).catch(() => {});
         return updated;
       })
     );
@@ -537,7 +538,7 @@ export const LoyaltyProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   const deleteCustomerFromDatabase = (customerId: string) => {
-    deleteDoc(doc(db, 'customers', customerId)).catch(() => {});
+    if (db) deleteDoc(doc(db, 'customers', customerId)).catch(() => {});
     setCustomersDatabase((prev) => {
       const filtered = prev.filter((c) => c.id !== customerId);
       if (filtered.length > 0 && customer.id === customerId) {
@@ -644,7 +645,7 @@ export const LoyaltyProvider: React.FC<{ children: React.ReactNode }> = ({ child
         db.map((c) => (c.id === prev.id ? updatedCustomer : c))
       );
 
-      setDoc(doc(db, 'customers', updatedCustomer.id), updatedCustomer).catch(() => {});
+      if (db) setDoc(doc(db, 'customers', updatedCustomer.id), updatedCustomer).catch(() => {});
 
       // If customer has no phone registered yet (first scan!), open registration onboarding modal
       if (!prev.phone) {

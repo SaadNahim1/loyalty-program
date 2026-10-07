@@ -42,6 +42,13 @@ export const TransactionHistory: React.FC = () => {
   useEffect(() => {
     if (!customer?.id) return;
 
+    if (!db) {
+      setFirestoreCustomer(customer);
+      setIsLoading(false);
+      setIsCloudConnected(false);
+      return;
+    }
+
     setIsLoading(true);
     const docRef = doc(db, 'customers', customer.id);
 
@@ -78,6 +85,11 @@ export const TransactionHistory: React.FC = () => {
   const handleManualRefresh = async () => {
     if (!customer?.id) return;
     setIsRefreshing(true);
+    if (!db) {
+      setFirestoreCustomer(customer);
+      setIsRefreshing(false);
+      return;
+    }
     try {
       const docRef = doc(db, 'customers', customer.id);
       const snapshot = await getDoc(docRef);
