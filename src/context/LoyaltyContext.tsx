@@ -96,7 +96,19 @@ export const LoyaltyProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [customersDatabase, setCustomersDatabase] = useState<CustomerProfile[]>(() => {
     try {
       const saved = localStorage.getItem(DATABASE_STORAGE_KEY);
-      if (saved) return JSON.parse(saved);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          return parsed.map((c) => ({
+            ...c,
+            rewards: Array.isArray(c?.rewards) ? c.rewards : [],
+            history: Array.isArray(c?.history) ? c.history : [],
+            currentStamps: Number(c?.currentStamps) || 0,
+            completedCardsCount: Number(c?.completedCardsCount) || 0,
+            lifetimeStampsEarned: Number(c?.lifetimeStampsEarned) || 0,
+          }));
+        }
+      }
     } catch {
       // Ignore
     }
@@ -109,9 +121,16 @@ export const LoyaltyProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
-        // If it was the demo account 'cust-1' (Ana Silva) or mock accounts, reset to a fresh real profile
-        if (parsed && !['cust-1', 'cust-2', 'cust-3'].includes(parsed.id)) {
-          return parsed;
+        if (parsed && typeof parsed === 'object') {
+          return {
+            ...createFreshGuestProfile(),
+            ...parsed,
+            rewards: Array.isArray(parsed.rewards) ? parsed.rewards : [],
+            history: Array.isArray(parsed.history) ? parsed.history : [],
+            currentStamps: Number(parsed.currentStamps) || 0,
+            completedCardsCount: Number(parsed.completedCardsCount) || 0,
+            lifetimeStampsEarned: Number(parsed.lifetimeStampsEarned) || 0,
+          };
         }
       }
     } catch {
@@ -217,7 +236,15 @@ export const LoyaltyProvider: React.FC<{ children: React.ReactNode }> = ({ child
           if (!snapshot.empty) {
             const list: CustomerProfile[] = [];
             snapshot.forEach((docSnap) => {
-              list.push(docSnap.data() as CustomerProfile);
+              const data = docSnap.data() as CustomerProfile;
+              list.push({
+                ...data,
+                rewards: Array.isArray(data?.rewards) ? data.rewards : [],
+                history: Array.isArray(data?.history) ? data.history : [],
+                currentStamps: Number(data?.currentStamps) || 0,
+                completedCardsCount: Number(data?.completedCardsCount) || 0,
+                lifetimeStampsEarned: Number(data?.lifetimeStampsEarned) || 0,
+              });
             });
             setCustomersDatabase(list);
           } else {

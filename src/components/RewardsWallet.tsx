@@ -7,8 +7,8 @@ export const RewardsWallet: React.FC = () => {
   const { customer, redeemReward, setActiveTab } = useLoyalty();
   const [selectedVoucher, setSelectedVoucher] = useState<RewardVoucher | null>(null);
 
-  const activeRewards = customer.rewards.filter((r) => !r.isRedeemed);
-  const usedRewards = customer.rewards.filter((r) => r.isRedeemed);
+  const activeRewards = (customer?.rewards || []).filter((r) => !r.isRedeemed);
+  const usedRewards = (customer?.rewards || []).filter((r) => r.isRedeemed);
 
   const handleRedeem = (voucher: RewardVoucher) => {
     redeemReward(voucher.id);

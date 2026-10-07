@@ -54,10 +54,10 @@ export const OwnerDashboard: React.FC = () => {
 
   // Calculate high-level KPIs
   const totalCustomers = customersDatabase.length;
-  const totalStampsGiven = customersDatabase.reduce((acc, c) => acc + c.lifetimeStampsEarned, 0);
-  const totalCompletedCards = customersDatabase.reduce((acc, c) => acc + c.completedCardsCount, 0);
+  const totalStampsGiven = customersDatabase.reduce((acc, c) => acc + (Number(c?.lifetimeStampsEarned) || 0), 0);
+  const totalCompletedCards = customersDatabase.reduce((acc, c) => acc + (Number(c?.completedCardsCount) || 0), 0);
   const activeUnclaimedRewards = customersDatabase.reduce(
-    (acc, c) => acc + c.rewards.filter((r) => !r.isRedeemed).length,
+    (acc, c) => acc + (c?.rewards || []).filter((r) => !r.isRedeemed).length,
     0
   );
 

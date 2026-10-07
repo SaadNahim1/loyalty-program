@@ -20,7 +20,7 @@ export const CustomerPassView: React.FC = () => {
     setIsStaffLoginModalOpen,
   } = useLoyalty();
 
-  const unredeemedRewardsCount = customer.rewards.filter((r) => !r.isRedeemed).length;
+  const unredeemedRewardsCount = (customer?.rewards || []).filter((r) => !r.isRedeemed).length;
 
   // Protect counter_stand tab: if customer is not authenticated staff, redirect to stamp_card
   React.useEffect(() => {
