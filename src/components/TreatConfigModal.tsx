@@ -92,10 +92,12 @@ export const TreatConfigModal: React.FC = () => {
             </span>
             <div className="space-y-2">
               <div>
-                <label className="text-[11px] font-semibold text-stone-700 block mb-1">
+                <label htmlFor="treat-config-title" className="text-[11px] font-semibold text-stone-700 block mb-1">
                   Treat Name (e.g. Free 16oz Latte or Any Bakery Item)
                 </label>
                 <input
+                  id="treat-config-title"
+                  name="treatTitle"
                   type="text"
                   value={customTitle}
                   onChange={(e) => setCustomTitle(e.target.value)}
@@ -105,10 +107,12 @@ export const TreatConfigModal: React.FC = () => {
               </div>
 
               <div>
-                <label className="text-[11px] font-semibold text-stone-700 block mb-1">
+                <label htmlFor="treat-config-desc" className="text-[11px] font-semibold text-stone-700 block mb-1">
                   Conditions / Details (optional)
                 </label>
                 <input
+                  id="treat-config-desc"
+                  name="treatDescription"
                   type="text"
                   value={customDesc}
                   onChange={(e) => setCustomDesc(e.target.value)}

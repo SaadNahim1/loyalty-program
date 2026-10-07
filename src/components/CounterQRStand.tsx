@@ -228,8 +228,13 @@ export const CounterQRStand: React.FC = () => {
 
           {selectedBaseUrl === 'custom' && (
             <div className="flex items-center gap-2 pt-1">
+              <label htmlFor="counter-custom-url" className="sr-only">URL Personalizado</label>
               <input
+                id="counter-custom-url"
+                name="customUrl"
                 type="url"
+                autoComplete="url"
+                aria-label="URL Personalizado para QR Code"
                 value={customUrl}
                 onChange={(e) => {
                   const val = e.target.value;

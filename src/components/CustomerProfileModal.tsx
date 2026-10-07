@@ -80,13 +80,16 @@ export const CustomerProfileModal: React.FC = () => {
 
           {/* Name Field */}
           <div className="space-y-1">
-            <label className="text-xs font-bold text-stone-700 block flex items-center gap-1.5">
+            <label htmlFor="profile-modal-name" className="text-xs font-bold text-stone-700 block flex items-center gap-1.5">
               <User className="w-3.5 h-3.5 text-amber-700" />
               <span>Nome do Titular</span>
             </label>
             <input
+              id="profile-modal-name"
+              name="name"
               type="text"
               required
+              autoComplete="name"
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="Ex: Carlos Silva"
@@ -96,12 +99,15 @@ export const CustomerProfileModal: React.FC = () => {
 
           {/* Phone Field */}
           <div className="space-y-1">
-            <label className="text-xs font-bold text-stone-700 block flex items-center gap-1.5">
+            <label htmlFor="profile-modal-phone" className="text-xs font-bold text-stone-700 block flex items-center gap-1.5">
               <Phone className="w-3.5 h-3.5 text-amber-700" />
               <span>Número de Telemóvel</span>
             </label>
             <input
+              id="profile-modal-phone"
+              name="phone"
               type="tel"
+              autoComplete="tel"
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
               placeholder="Ex: 912 345 678"

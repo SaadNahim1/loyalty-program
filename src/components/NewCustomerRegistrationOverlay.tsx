@@ -145,14 +145,17 @@ export const NewCustomerRegistrationOverlay: React.FC = () => {
           {!isRecovering ? (
             <form onSubmit={handleRegister} className="space-y-4">
               <div className="space-y-1.5">
-                <label className="text-xs font-bold text-stone-700 block flex items-center gap-1.5">
+                <label htmlFor="overlay-customer-name" className="text-xs font-bold text-stone-700 block flex items-center gap-1.5">
                   <User className="w-3.5 h-3.5 text-amber-700" />
                   <span>O seu Nome Completo:</span>
                 </label>
                 <input
+                  id="overlay-customer-name"
+                  name="name"
                   type="text"
                   required
                   autoFocus
+                  autoComplete="name"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   placeholder="Ex: João Ferreira"
@@ -161,13 +164,16 @@ export const NewCustomerRegistrationOverlay: React.FC = () => {
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-xs font-bold text-stone-700 block flex items-center gap-1.5">
+                <label htmlFor="overlay-customer-phone" className="text-xs font-bold text-stone-700 block flex items-center gap-1.5">
                   <Phone className="w-3.5 h-3.5 text-amber-700" />
                   <span>Número de Telemóvel:</span>
                 </label>
                 <input
+                  id="overlay-customer-phone"
+                  name="phone"
                   type="tel"
                   required
+                  autoComplete="tel"
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
                   placeholder="Ex: 912 345 678"
@@ -204,14 +210,17 @@ export const NewCustomerRegistrationOverlay: React.FC = () => {
           ) : (
             <form onSubmit={handleRecover} className="space-y-4">
               <div className="space-y-1.5">
-                <label className="text-xs font-bold text-stone-700 block flex items-center gap-1.5">
+                <label htmlFor="overlay-recovery-phone" className="text-xs font-bold text-stone-700 block flex items-center gap-1.5">
                   <Phone className="w-3.5 h-3.5 text-amber-700" />
                   <span>O seu Telemóvel de Registo:</span>
                 </label>
                 <input
+                  id="overlay-recovery-phone"
+                  name="recoveryPhone"
                   type="tel"
                   required
                   autoFocus
+                  autoComplete="tel"
                   value={recoveryPhone}
                   onChange={(e) => setRecoveryPhone(e.target.value)}
                   placeholder="Ex: 912 345 678"

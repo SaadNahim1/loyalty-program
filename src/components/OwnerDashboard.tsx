@@ -239,9 +239,14 @@ export const OwnerDashboard: React.FC = () => {
       <div className="bg-white rounded-3xl p-5 border border-stone-200 shadow-sm space-y-4">
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
           <div className="relative flex-1">
+            <label htmlFor="dashboard-search-query" className="sr-only">Pesquisar clientes</label>
             <Search className="w-4 h-4 text-stone-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
             <input
+              id="dashboard-search-query"
+              name="searchQuery"
               type="text"
+              autoComplete="off"
+              aria-label="Pesquise cliente por telefone ou nome"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Pesquise cliente por telefone (ex: 912) ou nome..."
@@ -430,10 +435,13 @@ export const OwnerDashboard: React.FC = () => {
 
             <form onSubmit={handleCreateCustomer} className="space-y-4">
               <div className="space-y-1">
-                <label className="text-xs font-bold text-stone-700 block">Nome do Cliente</label>
+                <label htmlFor="dashboard-new-name" className="text-xs font-bold text-stone-700 block">Nome do Cliente</label>
                 <input
+                  id="dashboard-new-name"
+                  name="customerName"
                   type="text"
                   required
+                  autoComplete="name"
                   value={newCustomerName}
                   onChange={(e) => setNewCustomerName(e.target.value)}
                   placeholder="Ex: Carlos Silva"
@@ -442,9 +450,12 @@ export const OwnerDashboard: React.FC = () => {
               </div>
 
               <div className="space-y-1">
-                <label className="text-xs font-bold text-stone-700 block">Número de Telemóvel</label>
+                <label htmlFor="dashboard-new-phone" className="text-xs font-bold text-stone-700 block">Número de Telemóvel</label>
                 <input
+                  id="dashboard-new-phone"
+                  name="customerPhone"
                   type="tel"
+                  autoComplete="tel"
                   value={newCustomerPhone}
                   onChange={(e) => setNewCustomerPhone(e.target.value)}
                   placeholder="Ex: 912 345 678"
@@ -453,7 +464,7 @@ export const OwnerDashboard: React.FC = () => {
               </div>
 
               <div className="space-y-1">
-                <label className="text-xs font-bold text-stone-700 block">Carimbos de Boas-Vindas</label>
+                <span className="text-xs font-bold text-stone-700 block">Carimbos de Boas-Vindas</span>
                 <div className="flex gap-2">
                   {[1, 2, 3, 5].map((num) => (
                     <button

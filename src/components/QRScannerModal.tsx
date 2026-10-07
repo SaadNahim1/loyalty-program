@@ -479,8 +479,13 @@ export const QRScannerModal: React.FC = () => {
 
             {/* Manual PIN / Code fallback Form */}
             <form onSubmit={handleManualCodeSubmit} className="flex gap-2">
+              <label htmlFor="scanner-manual-code" className="sr-only">Código do talão</label>
               <input
+                id="scanner-manual-code"
+                name="manualCode"
                 type="text"
+                autoComplete="off"
+                aria-label="Código do Talão de Balcão"
                 value={manualCode}
                 onChange={(e) => setManualCode(e.target.value)}
                 placeholder="Código do Talão (ex: PITSTOP8)"
