@@ -25,16 +25,4 @@ try {
   console.warn('[Firebase] Initialization notice:', error);
 }
 
-// Connectivity test with error handling
-if (db) {
-  (async () => {
-    try {
-      await getDocFromServer(doc(db!, 'test', 'connection'));
-      console.log('[Firebase] Connected to Firestore successfully.');
-    } catch {
-      // Offline mode or network restriction - app continues with local persistence
-    }
-  })();
-}
-
 export { app, db };
