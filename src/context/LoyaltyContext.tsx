@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import confetti from 'canvas-confetti';
 import { collection, doc, setDoc, deleteDoc, onSnapshot } from 'firebase/firestore';
 import { db } from '../firebase';
@@ -64,6 +64,10 @@ interface LoyaltyContextType {
   setIsStaffLoginModalOpen: (open: boolean) => void;
   scannedStampModal: ScannedStampModalState;
   setScannedStampModal: React.Dispatch<React.SetStateAction<ScannedStampModalState>>;
+  isHydrated: boolean;
+  initializationStage: string;
+  initializationLogs: string[];
+  retryInitialization: () => void;
 }
 
 const STORAGE_KEY = 'coffeebakery_loyalty_customer';
@@ -202,6 +206,84 @@ export const LoyaltyProvider: React.FC<{ children: React.ReactNode }> = ({ child
     isRewardUnlocked: false,
     rewardTitle: '',
   });
+
+  // Diagnostic Monitor & Hydration Control
+  const [isHydrated, setIsHydrated] = useState<boolean>(false);
+  const [initializationStage, setInitializationStage] = useState<string>('A inicializar base de dados');
+  const [initializationLogs, setInitializationLogs] = useState<string[]>([]);
+
+  const logStep = useCallback((step: string, details?: Record<string, unknown>) => {
+    const time = new Date().toLocaleTimeString();
+    const logMsg = `[${time}] ${step}`;
+    setInitializationLogs((prev) => [...prev, logMsg]);
+    setInitializationStage(step);
+    console.info(`%c[LoyaltyProvider Monitor] ${step}`, 'color: #f59e0b; font-weight: bold;', details || '');
+  }, []);
+
+  const retryInitialization = useCallback(() => {
+    console.group('%c[LoyaltyProvider Monitor] Re-executando Sequência de Inicialização...', 'color: #f59e0b; font-weight: bold;');
+    logStep('Reinicialização manual solicitada pelo utilizador');
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed && typeof parsed === 'object') {
+          setCustomer({
+            ...createFreshGuestProfile(),
+            ...parsed,
+            rewards: Array.isArray(parsed.rewards) ? parsed.rewards : [],
+            history: Array.isArray(parsed.history) ? parsed.history : [],
+          });
+          logStep('Cache de cliente restaurada com sucesso', { id: parsed.id });
+        }
+      } else {
+        setCustomer(createFreshGuestProfile());
+        logStep('Novo perfil de convidado gerado');
+      }
+    } catch (err) {
+      logStep('Aviso na recuperação de cache local', { error: String(err) });
+      setCustomer(createFreshGuestProfile());
+    }
+    logStep('Estado hidratado com sucesso.');
+    setIsHydrated(true);
+    console.groupEnd();
+  }, [logStep]);
+
+  useEffect(() => {
+    console.group('%c[LoyaltyProvider Monitor] A iniciar monitor de diagnóstico...', 'color: #f59e0b; font-weight: bold;');
+    logStep('1/4: A carregar dados do armazenamento local (localStorage)');
+
+    const hasCustomer = Boolean(localStorage.getItem(STORAGE_KEY));
+    const hasDB = Boolean(localStorage.getItem(DATABASE_STORAGE_KEY));
+    logStep('2/4: Verificação de integridade dos dados', { hasCustomer, hasDB });
+
+    if (db) {
+      logStep('3/4: Firebase Firestore disponível - Sincronização em background');
+    } else {
+      logStep('3/4: Modo Offline-First ativo (Persistência local)');
+    }
+
+    const timer = setTimeout(() => {
+      logStep('4/4: Interface pronta e totalmente hidratada');
+      setIsHydrated(true);
+      console.groupEnd();
+    }, 150);
+
+    const safetyTimer = setTimeout(() => {
+      setIsHydrated((prev) => {
+        if (!prev) {
+          console.warn('[LoyaltyProvider Monitor] Tempo limite de espera atingido. Forçando hidratação segura.');
+          return true;
+        }
+        return prev;
+      });
+    }, 2500);
+
+    return () => {
+      clearTimeout(timer);
+      clearTimeout(safetyTimer);
+    };
+  }, [logStep]);
 
   // Track if QR scan was processed on page load
   const hasProcessedScanRef = useRef(false);
@@ -793,6 +875,10 @@ export const LoyaltyProvider: React.FC<{ children: React.ReactNode }> = ({ child
         setIsStaffLoginModalOpen,
         scannedStampModal,
         setScannedStampModal,
+        isHydrated,
+        initializationStage,
+        initializationLogs,
+        retryInitialization,
       }}
     >
       {children}

@@ -4,7 +4,7 @@
  */
 
 import React from 'react';
-import { LoyaltyProvider } from './context/LoyaltyContext';
+import { LoyaltyProvider, useLoyalty } from './context/LoyaltyContext';
 import { Header } from './components/Header';
 import { CustomerPassView } from './components/CustomerPassView';
 import { QRScannerModal } from './components/QRScannerModal';
@@ -14,9 +14,51 @@ import { CustomerProfileModal } from './components/CustomerProfileModal';
 import { StaffLoginModal } from './components/StaffLoginModal';
 import { NotificationToast } from './components/NotificationToast';
 import { NewCustomerRegistrationOverlay } from './components/NewCustomerRegistrationOverlay';
-import { Coffee, Gift } from 'lucide-react';
+import { Coffee, Gift, RotateCcw } from 'lucide-react';
 
 const MainContent: React.FC = () => {
+  const { isHydrated, retryInitialization, initializationStage } = useLoyalty();
+
+  // Loading Fallback with Manual Retry and Hydration Reset
+  if (!isHydrated) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-[#f7f5f0] text-stone-900 p-6 font-sans">
+        <div className="max-w-md w-full bg-white rounded-3xl border border-stone-200 shadow-xl p-8 text-center space-y-6 animate-in fade-in duration-300">
+          <div className="relative mx-auto w-16 h-16 rounded-2xl bg-amber-500 text-stone-950 flex items-center justify-center shadow-lg shadow-amber-500/20">
+            <Coffee className="w-8 h-8 animate-bounce" />
+            <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-amber-300 animate-ping" />
+          </div>
+
+          <div className="space-y-2">
+            <span className="text-[11px] font-bold uppercase tracking-widest text-amber-700 block">
+              Pitstop Roast & Bakery
+            </span>
+            <h2 className="text-xl font-extrabold text-stone-900 font-display">
+              A carregar o seu Cartão de Fidelização...
+            </h2>
+            <p className="text-xs text-stone-600 leading-relaxed font-mono">
+              {initializationStage}
+            </p>
+          </div>
+
+          <div className="pt-2 space-y-2">
+            <button
+              type="button"
+              onClick={retryInitialization}
+              className="w-full py-3.5 px-4 rounded-xl bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 text-stone-950 font-extrabold text-xs sm:text-sm flex items-center justify-center gap-2 transition-all shadow-md active:scale-98"
+            >
+              <RotateCcw className="w-4 h-4" />
+              <span>Tentar Novamente / Carregar Imediatamente</span>
+            </button>
+            <p className="text-[11px] text-stone-400">
+              Clique para forçar o carregamento local caso a rede demore.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen flex flex-col bg-[#f7f5f0] text-stone-900 font-sans">
       <Header />
