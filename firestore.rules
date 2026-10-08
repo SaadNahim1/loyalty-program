@@ -1,14 +1,160 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 64 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidRewardList(rewards) {
+      return rewards is list &&
+        rewards.size() <= 50 &&
+        (rewards.size() == 0 || (
+          rewards[0] is map &&
+          rewards[0].keys().hasAll(['id', 'title', 'description', 'code', 'issuedAt', 'expiresAt', 'isRedeemed']) &&
+          rewards[0].id is string && rewards[0].id.size() <= 64 &&
+          rewards[0].title is string && rewards[0].title.size() <= 80 &&
+          rewards[0].description is string && rewards[0].description.size() <= 160 &&
+          rewards[0].code is string && rewards[0].code.size() <= 32 &&
+          rewards[0].issuedAt is number &&
+          rewards[0].expiresAt is number &&
+          rewards[0].isRedeemed is bool
+        ));
+    }
+
+    function isValidHistoryList(history) {
+      return history is list &&
+        history.size() <= 60 &&
+        (history.size() == 0 || (
+          history[0] is map &&
+          history[0].keys().hasAll(['id', 'timestamp', 'source', 'note']) &&
+          history[0].id is string && history[0].id.size() <= 64 &&
+          history[0].timestamp is number &&
+          history[0].source in ['qr_counter_scan', 'counter_code'] &&
+          history[0].note is string && history[0].note.size() <= 160
+        ));
+    }
+
+    function hasValidDailyCodeProof(data) {
+      let passDoc = get(/databases/$(database)/documents/store_config/daily_pass);
+      let code = passDoc.data.manualCode;
+      return data.history.size() >= 1 &&
+        data.history[0].source in ['qr_counter_scan', 'counter_code'] &&
+        (
+          data.history[0].note == 'Leitura QR do Dia (' + code + ')' ||
+          data.history[0].note == 'Código do Dia (' + code + ')' ||
+          data.history[0].note == '1.º Carimbo na Ativação (' + code + ')'
+        );
+    }
+
+    function isValidCustomer(data) {
+      return data.keys().hasAll([
+        'id', 'name', 'phone', 'memberId', 'memberSince',
+        'currentStamps', 'completedCardsCount', 'lifetimeStampsEarned',
+        'rewards', 'history'
+      ]) &&
+      data.keys().hasOnly([
+        'id', 'name', 'phone', 'memberId', 'memberSince',
+        'currentStamps', 'completedCardsCount', 'lifetimeStampsEarned',
+        'lastStampedDate', 'lastScanTimestamp', 'rewards', 'history'
+      ]) &&
+      data.id is string && data.id.size() >= 1 && data.id.size() <= 64 && data.id.matches('^[a-zA-Z0-9_\\-]+$') &&
+      data.name is string && data.name.size() >= 1 && data.name.size() <= 80 &&
+      data.phone is string && data.phone.size() >= 9 && data.phone.size() <= 20 &&
+      data.memberId is string && data.memberId.size() >= 1 && data.memberId.size() <= 32 &&
+      data.memberSince is string && data.memberSince.size() >= 1 && data.memberSince.size() <= 32 &&
+      data.currentStamps is number && data.currentStamps >= 0 && data.currentStamps <= 7 &&
+      data.completedCardsCount is number && data.completedCardsCount >= 0 &&
+      data.lifetimeStampsEarned is number && data.lifetimeStampsEarned >= 0 &&
+      (!('lastStampedDate' in data) || (data.lastStampedDate is string && data.lastStampedDate.size() <= 16)) &&
+      (!('lastScanTimestamp' in data) || (data.lastScanTimestamp is number)) &&
+      isValidRewardList(data.rewards) &&
+      isValidHistoryList(data.history);
+    }
+
+    function isValidCustomerTransition() {
+      return incoming().id == existing().id &&
+        incoming().memberId == existing().memberId &&
+        incoming().memberSince == existing().memberSince &&
+        incoming().completedCardsCount >= existing().completedCardsCount &&
+        incoming().lifetimeStampsEarned >= existing().lifetimeStampsEarned &&
+        (
+          // Action 1: Profile / Voucher redemption update (stamps unchanged)
+          (incoming().currentStamps == existing().currentStamps &&
+           incoming().completedCardsCount == existing().completedCardsCount &&
+           incoming().lifetimeStampsEarned == existing().lifetimeStampsEarned) ||
+          // Action 2: +1 stamp via valid Daily QR or Daily Code
+          (incoming().currentStamps == existing().currentStamps + 1 &&
+           incoming().completedCardsCount == existing().completedCardsCount &&
+           incoming().lifetimeStampsEarned == existing().lifetimeStampsEarned + 1 &&
+           hasValidDailyCodeProof(incoming())) ||
+          // Action 3: 8th stamp completion via valid Daily QR or Daily Code -> resets currentStamps to 0
+          (existing().currentStamps == 7 &&
+           incoming().currentStamps == 0 &&
+           incoming().completedCardsCount == existing().completedCardsCount + 1 &&
+           incoming().lifetimeStampsEarned == existing().lifetimeStampsEarned + 1 &&
+           hasValidDailyCodeProof(incoming()))
+        );
+    }
+
+    function isValidDailyPass(data) {
+      return data.keys().hasAll([
+        'dateStr', 'qrToken', 'manualCode', 'treatTitle',
+        'treatDescription', 'allowMultiplePerDay', 'staffPin', 'generatedAt'
+      ]) &&
+      data.keys().hasOnly([
+        'dateStr', 'qrToken', 'manualCode', 'treatTitle',
+        'treatDescription', 'allowMultiplePerDay', 'staffPin', 'generatedAt'
+      ]) &&
+      data.dateStr is string && data.dateStr.size() <= 16 && data.dateStr.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$') &&
+      data.qrToken is string && data.qrToken.size() >= 10 && data.qrToken.size() <= 64 && data.qrToken.matches('^PITSTOP_DAILY_.*$') &&
+      data.manualCode is string && data.manualCode.size() >= 6 && data.manualCode.size() <= 24 && data.manualCode.matches('^PIT-.*$') &&
+      data.treatTitle is string && data.treatTitle.size() >= 1 && data.treatTitle.size() <= 80 &&
+      data.treatDescription is string && data.treatDescription.size() >= 1 && data.treatDescription.size() <= 160 &&
+      data.allowMultiplePerDay is bool &&
+      data.staffPin is string && data.staffPin.size() >= 4 && data.staffPin.size() <= 12 &&
+      data.generatedAt is number;
+    }
+
     match /customers/{customerId} {
-      allow read, write: if true;
+      allow get: if isValidId(customerId);
+      allow list: if true;
+      allow create: if isValidId(customerId) &&
+        isValidCustomer(incoming()) &&
+        incoming().id == customerId &&
+        incoming().completedCardsCount == 0 &&
+        incoming().lifetimeStampsEarned == incoming().currentStamps &&
+        (
+          (incoming().currentStamps == 0 && incoming().history.size() == 0) ||
+          (incoming().currentStamps == 1 && hasValidDailyCodeProof(incoming()))
+        );
+      allow update: if isValidId(customerId) &&
+        isValidCustomer(incoming()) &&
+        incoming().id == customerId &&
+        isValidCustomerTransition();
+      allow delete: if isValidId(customerId);
     }
-    match /store/{docId} {
-      allow read, write: if true;
+
+    match /store_config/{configId} {
+      allow get: if configId == 'daily_pass';
+      allow list: if false;
+      allow create, update: if configId == 'daily_pass' && isValidDailyPass(incoming());
+      allow delete: if false;
     }
-    match /test/{docId} {
-      allow read, write: if true;
+
+    match /test/connection {
+      allow get: if true;
     }
   }
 }

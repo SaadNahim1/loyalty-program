@@ -1,28 +1,32 @@
-/**
- * @license
- * SPDX-License-Identifier: Apache-2.0
- */
-
 import React from 'react';
+import { QrCode, CheckCircle2, AlertCircle, Gift, Info, X, Coffee, RotateCcw } from 'lucide-react';
 import { LoyaltyProvider, useLoyalty } from './context/LoyaltyContext';
-import { Header } from './components/Header';
-import { CustomerPassView } from './components/CustomerPassView';
+import { CustomerCardView } from './components/CustomerCardView';
+import { VouchersView } from './components/VouchersView';
+import { DailyPosterView } from './components/DailyPosterView';
+import { StaffDashboardView } from './components/StaffDashboardView';
 import { QRScannerModal } from './components/QRScannerModal';
-import { TreatConfigModal } from './components/TreatConfigModal';
-import { ScanSuccessModal } from './components/ScanSuccessModal';
-import { CustomerProfileModal } from './components/CustomerProfileModal';
-import { StaffLoginModal } from './components/StaffLoginModal';
-import { NotificationToast } from './components/NotificationToast';
-import { NewCustomerRegistrationOverlay } from './components/NewCustomerRegistrationOverlay';
-import { Coffee, Gift, RotateCcw } from 'lucide-react';
+import { RegistrationModal } from './components/RegistrationModal';
+import { StaffPinModal } from './components/StaffPinModal';
 
-const MainContent: React.FC = () => {
-  const { isHydrated, retryInitialization, initializationStage } = useLoyalty();
+const LoyaltyShell: React.FC = () => {
+  const {
+    activeTab,
+    setActiveTab,
+    setIsScannerOpen,
+    customer,
+    isStaffAuthenticated,
+    toast,
+    dismissToast,
+    isHydrated,
+    initializationStage,
+    retryInitialization,
+  } = useLoyalty();
 
   // Loading Fallback with Manual Retry and Hydration Reset
   if (!isHydrated) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center bg-[#f7f5f0] text-stone-900 p-6 font-sans">
+      <div className="min-h-screen flex flex-col items-center justify-center bg-[#F8F6F1] text-stone-900 p-6 font-sans">
         <div className="max-w-md w-full bg-white rounded-3xl border border-stone-200 shadow-xl p-8 text-center space-y-6 animate-in fade-in duration-300">
           <div className="relative mx-auto w-16 h-16 rounded-2xl bg-amber-500 text-stone-950 flex items-center justify-center shadow-lg shadow-amber-500/20">
             <Coffee className="w-8 h-8 animate-bounce" />
@@ -59,62 +63,148 @@ const MainContent: React.FC = () => {
     );
   }
 
+  const activeVouchersCount = (customer?.rewards || []).filter((r) => !r.isRedeemed).length;
+
   return (
-    <div className="min-h-screen flex flex-col bg-[#f7f5f0] text-stone-900 font-sans">
-      <Header />
+    <div className="min-h-screen flex flex-col bg-[#F8F6F1] text-stone-900 font-sans">
+      {/* Strict 3-Zone Top Bar Contract */}
+      <header className="no-print sticky top-0 z-30 bg-[#F8F6F1]/95 backdrop-blur-md border-b border-stone-200/90 px-4 sm:px-8 py-4">
+        <div className="max-w-6xl mx-auto flex items-center justify-between gap-4">
+          {/* Zone 1: Single text element wordmark */}
+          <button
+            type="button"
+            onClick={() => setActiveTab('card')}
+            className="font-display font-bold text-lg sm:text-xl tracking-tight text-stone-900 text-left whitespace-nowrap"
+          >
+            Pitstop Roast & Bakery
+          </button>
 
-      {/* Hero Sub-header Context Bar */}
-      <div className="bg-stone-900/95 text-stone-300 py-2.5 px-4 border-b border-stone-800 text-xs">
-        <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2 text-center sm:text-left">
-          <div className="flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            <span className="font-medium text-stone-200">Pitstop Coffee Shop & Fresh Bakery</span>
-            <span aria-hidden="true" className="text-stone-600">·</span>
-            <span className="text-stone-400">Scan Counter QR at checkout for 1 stamp</span>
-          </div>
+          {/* Zone 2: Clean text navigation links */}
+          <nav className="flex items-center gap-4 sm:gap-7 text-xs sm:text-sm font-medium text-stone-600 overflow-x-auto">
+            <button
+              type="button"
+              onClick={() => setActiveTab('card')}
+              className={`py-1 transition-colors whitespace-nowrap shrink-0 ${
+                activeTab === 'card'
+                  ? 'text-stone-900 font-semibold underline underline-offset-8 decoration-amber-800 decoration-2'
+                  : 'hover:text-stone-900'
+              }`}
+            >
+              Cartão Digital
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('vouchers')}
+              className={`py-1 transition-colors whitespace-nowrap shrink-0 ${
+                activeTab === 'vouchers'
+                  ? 'text-stone-900 font-semibold underline underline-offset-8 decoration-amber-800 decoration-2'
+                  : 'hover:text-stone-900'
+              }`}
+            >
+              Vales de Oferta{activeVouchersCount > 0 ? ` (${activeVouchersCount})` : ''}
+            </button>
+            {isStaffAuthenticated && (
+              <button
+                type="button"
+                onClick={() => setActiveTab('poster')}
+                className={`py-1 transition-colors whitespace-nowrap shrink-0 ${
+                  activeTab === 'poster'
+                    ? 'text-stone-900 font-semibold underline underline-offset-8 decoration-amber-800 decoration-2'
+                    : 'hover:text-stone-900'
+                }`}
+              >
+                Cartaz do Dia
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setActiveTab('staff')}
+              className={`py-1 transition-colors whitespace-nowrap shrink-0 ${
+                activeTab === 'staff'
+                  ? 'text-stone-900 font-semibold underline underline-offset-8 decoration-amber-800 decoration-2'
+                  : 'hover:text-stone-900'
+              }`}
+            >
+              {isStaffAuthenticated ? 'Painel Caixa (Ativo)' : 'Área do Caixa'}
+            </button>
+          </nav>
 
-          <div className="flex items-center gap-3 text-stone-400 text-[11px]">
-            <span className="flex items-center gap-1 text-amber-300">
-              <Coffee className="w-3.5 h-3.5" />
-              1 Scan = 1 Stamp
-            </span>
-            <span className="text-emerald-400 font-semibold flex items-center gap-1">
-              <Gift className="w-3.5 h-3.5" />
-              Collect 8 Stamps = Free Treat
-            </span>
+          {/* Zone 3: 1 Primary Action */}
+          <div className="flex items-center shrink-0">
+            <button
+              type="button"
+              onClick={() => setIsScannerOpen(true)}
+              className="px-3 sm:px-4 py-2 text-xs font-semibold text-white bg-stone-900 rounded-xl hover:bg-stone-800 transition-colors flex items-center gap-1.5 sm:gap-2 whitespace-nowrap"
+            >
+              <QrCode className="w-4 h-4 text-amber-400" />
+              <span className="hidden sm:inline">Ler QR do Dia</span>
+              <span className="sm:hidden">Ler QR</span>
+            </button>
           </div>
         </div>
-      </div>
+      </header>
 
-      {/* Main Dynamic View */}
-      <main className="flex-1 max-w-6xl w-full mx-auto p-4 sm:p-6 lg:p-8">
-        <CustomerPassView />
+      {/* Toast Notification */}
+      {toast && (
+        <div className="no-print fixed bottom-5 right-5 z-50 max-w-sm w-full px-4 sm:px-0">
+          <div
+            className={`p-4 rounded-2xl shadow-xl border flex items-start gap-3 ${
+              toast.type === 'reward'
+                ? 'bg-amber-900 text-amber-50 border-amber-700'
+                : toast.type === 'error'
+                ? 'bg-rose-950 text-rose-100 border-rose-800'
+                : 'bg-stone-900 text-stone-100 border-stone-800'
+            }`}
+          >
+            {toast.type === 'reward' ? (
+              <Gift className="w-5 h-5 text-amber-300 shrink-0 mt-0.5" />
+            ) : toast.type === 'error' ? (
+              <AlertCircle className="w-5 h-5 text-rose-400 shrink-0 mt-0.5" />
+            ) : toast.type === 'info' ? (
+              <Info className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+            ) : (
+              <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
+            )}
+            <div className="flex-1 text-xs space-y-0.5">
+              <p className="font-semibold text-sm">{toast.title}</p>
+              <p className="opacity-90 leading-relaxed">{toast.message}</p>
+            </div>
+            <button
+              type="button"
+              onClick={dismissToast}
+              className="text-stone-400 hover:text-white p-1"
+              aria-label="Fechar aviso"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Main Content Container */}
+      <main className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-8 py-8">
+        {activeTab === 'card' && <CustomerCardView />}
+        {activeTab === 'vouchers' && <VouchersView />}
+        {activeTab === 'poster' && <DailyPosterView />}
+        {activeTab === 'staff' && <StaffDashboardView />}
       </main>
 
-      {/* Clean Footer */}
-      <footer className="mt-auto border-t border-stone-200 bg-stone-100 py-6 px-4 text-center text-xs text-stone-500">
-        <div className="max-w-4xl mx-auto space-y-2">
-          <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-stone-600 font-medium">
-            <span>Coffee Shop & Bakery Loyalty Program</span>
+      {/* Clean Editorial Footer */}
+      <footer className="no-print mt-auto border-t border-stone-200/80 py-6 px-4 text-center text-xs text-stone-500">
+        <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2">
+          <span>Pitstop Roast & Bakery · Clube de Fidelização Digital</span>
+          <div className="flex items-center gap-2">
+            <span>1 Visita Diária = 1 Carimbo</span>
             <span aria-hidden="true">·</span>
-            <span>Digital Stamp Card</span>
-            <span aria-hidden="true">·</span>
-            <span>1 Scan = 1 Stamp</span>
+            <span>8 Carimbos = 1 Oferta Grátis</span>
           </div>
-          <p className="text-[11px] text-stone-400">
-            Collect 8 stamps to unlock your complimentary coffee shop treat.
-          </p>
         </div>
       </footer>
 
-      {/* Modals & Overlays */}
-      <NewCustomerRegistrationOverlay />
+      {/* Modals */}
       <QRScannerModal />
-      <TreatConfigModal />
-      <ScanSuccessModal />
-      <CustomerProfileModal />
-      <StaffLoginModal />
-      <NotificationToast />
+      <RegistrationModal />
+      <StaffPinModal />
     </div>
   );
 };
@@ -122,7 +212,7 @@ const MainContent: React.FC = () => {
 export default function App() {
   return (
     <LoyaltyProvider>
-      <MainContent />
+      <LoyaltyShell />
     </LoyaltyProvider>
   );
 }

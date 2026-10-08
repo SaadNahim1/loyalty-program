@@ -1,215 +1,169 @@
-import React, { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import {
+  doc,
+  setDoc,
+  getDoc,
+  onSnapshot,
+  collection,
+  deleteDoc,
+} from 'firebase/firestore';
 import confetti from 'canvas-confetti';
-import { collection, doc, setDoc, deleteDoc, onSnapshot } from 'firebase/firestore';
-import { db } from '../firebase';
-import { CustomerProfile, RewardVoucher, StampRecord, StoreRewardConfig } from '../types';
-import { INITIAL_CUSTOMERS_DATABASE, DEFAULT_STORE_REWARD } from '../data/mockData';
-import { soundFX } from '../utils/audio';
+import { db, handleFirestoreError, OperationType } from '../firebase';
+import {
+  Customer,
+  DailyPassConfig,
+  getTodayDateString,
+  generateDailyCredentials,
+  normalizePhone,
+  REWARD_PRESETS,
+} from '../types/loyalty';
+import { sound } from '../utils/sound';
 
-interface ToastState {
+const STORAGE_CUSTOMER_KEY = 'pitstop_loyalty_active_customer_v2';
+const STORAGE_DAILY_CONFIG_KEY = 'pitstop_loyalty_daily_config_v2';
+const STORAGE_STAFF_AUTH_KEY = 'pitstop_loyalty_staff_session_v2';
+
+export type ActiveTab = 'card' | 'vouchers' | 'poster' | 'staff';
+
+export interface ToastMessage {
+  id: string;
   title: string;
   message: string;
-  type: 'success' | 'info' | 'reward';
+  type: 'success' | 'error' | 'info' | 'reward';
 }
 
-export interface ScannedStampModalState {
-  isOpen: boolean;
-  newStampsCount: number;
-  totalCards: number;
-  isRewardUnlocked: boolean;
-  rewardTitle: string;
-}
-
-export type ActiveTabType = 'stamp_card' | 'rewards' | 'counter_stand' | 'history' | 'owner_dashboard';
-
-interface LoyaltyContextType {
-  customer: CustomerProfile;
-  hasActiveSession: boolean;
-  isRegistrationOverlayOpen: boolean;
-  setIsRegistrationOverlayOpen: (open: boolean) => void;
-  pendingFirstScan: boolean;
-  registerCustomerSession: (name: string, phone: string) => void;
-  activeTab: ActiveTabType;
-  setActiveTab: (tab: ActiveTabType) => void;
-  selectCustomerProfile: (profileId: string) => void;
-  customersDatabase: CustomerProfile[];
-  allProfiles: CustomerProfile[];
-  createCustomerInDatabase: (name: string, phone: string, initialStamps?: number) => CustomerProfile;
-  punchCustomerStampInDatabase: (customerId: string) => void;
-  redeemCustomerRewardInDatabase: (customerId: string, rewardId: string) => void;
-  deleteCustomerFromDatabase: (customerId: string) => void;
-  resetDatabaseToDefaults: () => void;
-  storeReward: StoreRewardConfig;
-  updateStoreReward: (config: StoreRewardConfig) => void;
-  addSingleStamp: (
-    source?: 'qr_counter_scan' | 'counter_code' | 'staff_punch',
-    note?: string
-  ) => void;
-  redeemReward: (rewardId: string) => void;
-  resetActiveCard: () => void;
-  toast: ToastState | null;
-  showToast: (title: string, message: string, type?: 'success' | 'info' | 'reward') => void;
-  dismissToast: () => void;
+interface LoyaltyContextValue {
+  customer: Customer | null;
+  dailyPass: DailyPassConfig;
+  activeTab: ActiveTab;
+  setActiveTab: (tab: ActiveTab) => void;
   isScannerOpen: boolean;
   setIsScannerOpen: (open: boolean) => void;
-  isConfigRewardOpen: boolean;
-  setIsConfigRewardOpen: (open: boolean) => void;
-  isProfileModalOpen: boolean;
-  setIsProfileModalOpen: (open: boolean) => void;
-  updateCustomerProfile: (name: string, phone: string) => void;
+  isRegistrationOpen: boolean;
+  setIsRegistrationOpen: (open: boolean) => void;
   isStaffAuthenticated: boolean;
-  loginStaffWithPin: (pin: string) => boolean;
+  isStaffPinModalOpen: boolean;
+  setIsStaffPinModalOpen: (open: boolean) => void;
+  allCustomers: Customer[];
+  toast: ToastMessage | null;
+  dismissToast: () => void;
+  showToast: (title: string, message: string, type?: ToastMessage['type']) => void;
+  lastPunchedIndex: number | null;
+  registerOrRecoverCustomer: (name: string, phone: string, mode: 'register' | 'recover') => Promise<boolean>;
+  logoutCustomer: () => void;
+  validateAndApplyDailyScan: (scannedInput: string, source: 'qr_counter_scan' | 'counter_code') => Promise<{ ok: boolean; reason?: string }>;
+  authenticateStaff: (pin: string) => boolean;
   logoutStaff: () => void;
-  isStaffLoginModalOpen: boolean;
-  setIsStaffLoginModalOpen: (open: boolean) => void;
-  scannedStampModal: ScannedStampModalState;
-  setScannedStampModal: React.Dispatch<React.SetStateAction<ScannedStampModalState>>;
+  regenerateDailyPass: () => Promise<void>;
+  updateDailyConfig: (updates: Partial<Pick<DailyPassConfig, 'treatTitle' | 'treatDescription' | 'allowMultiplePerDay' | 'staffPin'>>) => Promise<void>;
+  staffRedeemVoucher: (customerId: string, voucherId: string) => Promise<void>;
+  staffCreateCustomer: (name: string, phone: string) => Promise<void>;
+  staffDeleteCustomer: (customerId: string) => Promise<void>;
+  // Hydration & Diagnostic Monitor
   isHydrated: boolean;
   initializationStage: string;
   initializationLogs: string[];
   retryInitialization: () => void;
 }
 
-const STORAGE_KEY = 'coffeebakery_loyalty_customer';
-const DATABASE_STORAGE_KEY = 'coffeebakery_customers_db';
-const REWARD_CONFIG_KEY = 'coffeebakery_reward_config';
-const STAFF_AUTH_KEY = 'coffeebakery_staff_session';
-const DEFAULT_STAFF_PIN = '1234';
+const LoyaltyContext = createContext<LoyaltyContextValue | undefined>(undefined);
 
-const createFreshGuestProfile = (): CustomerProfile => {
-  const memberNumber = Math.floor(10000 + Math.random() * 90000);
+function createDefaultDailyPass(): DailyPassConfig {
+  const today = getTodayDateString();
+  const creds = generateDailyCredentials(today);
   return {
-    id: `cust-${Date.now()}`,
-    name: 'Novo Cliente',
-    phone: '',
-    email: '',
-    memberId: `PIT-${memberNumber}`,
-    memberSince: 'Hoje',
-    currentStamps: 0,
-    completedCardsCount: 0,
-    lifetimeStampsEarned: 0,
-    rewards: [],
-    history: [],
+    dateStr: today,
+    qrToken: creds.qrToken,
+    manualCode: creds.manualCode,
+    treatTitle: REWARD_PRESETS[0].treatTitle,
+    treatDescription: REWARD_PRESETS[0].treatDescription,
+    allowMultiplePerDay: false,
+    staffPin: '1234',
+    generatedAt: Date.now(),
   };
-};
+}
 
-const LoyaltyContext = createContext<LoyaltyContextType | undefined>(undefined);
+function sanitizeDailyPassForFirestore(d: DailyPassConfig): DailyPassConfig {
+  const cleanPin = (d.staffPin || '1234').trim().slice(0, 12);
+  return {
+    dateStr: (d.dateStr || getTodayDateString()).slice(0, 16),
+    qrToken: (d.qrToken || '').slice(0, 64),
+    manualCode: (d.manualCode || '').slice(0, 24),
+    treatTitle: (d.treatTitle || REWARD_PRESETS[0].treatTitle).slice(0, 80),
+    treatDescription: (d.treatDescription || REWARD_PRESETS[0].treatDescription).slice(0, 160),
+    allowMultiplePerDay: Boolean(d.allowMultiplePerDay),
+    staffPin: cleanPin.length >= 4 ? cleanPin : '1234',
+    generatedAt: typeof d.generatedAt === 'number' ? d.generatedAt : Date.now(),
+  };
+}
+
+function sanitizeCustomerForFirestore(c: Customer): Customer {
+  return {
+    id: c.id.slice(0, 64),
+    name: c.name.trim().slice(0, 80) || 'Cliente Pitstop',
+    phone: c.phone.trim().slice(0, 20),
+    memberId: (c.memberId || 'PIT-0000').slice(0, 32),
+    memberSince: (c.memberSince || 'out. 2026').slice(0, 32),
+    currentStamps: Math.min(7, Math.max(0, Number(c.currentStamps) || 0)),
+    completedCardsCount: Math.max(0, Number(c.completedCardsCount) || 0),
+    lifetimeStampsEarned: Math.max(0, Number(c.lifetimeStampsEarned) || 0),
+    ...(c.lastStampedDate ? { lastStampedDate: c.lastStampedDate.slice(0, 16) } : {}),
+    ...(typeof c.lastScanTimestamp === 'number' ? { lastScanTimestamp: c.lastScanTimestamp } : {}),
+    rewards: Array.isArray(c.rewards) ? c.rewards.slice(0, 50) : [],
+    history: Array.isArray(c.history) ? c.history.slice(0, 60) : [],
+  };
+}
 
 export const LoyaltyProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  // Master customers database
-  const [customersDatabase, setCustomersDatabase] = useState<CustomerProfile[]>(() => {
+  const [customer, setCustomer] = useState<Customer | null>(() => {
     try {
-      const saved = localStorage.getItem(DATABASE_STORAGE_KEY);
+      const saved = localStorage.getItem(STORAGE_CUSTOMER_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) {
-          return parsed.map((c) => ({
-            ...c,
-            rewards: Array.isArray(c?.rewards) ? c.rewards : [],
-            history: Array.isArray(c?.history) ? c.history : [],
-            currentStamps: Number(c?.currentStamps) || 0,
-            completedCardsCount: Number(c?.completedCardsCount) || 0,
-            lifetimeStampsEarned: Number(c?.lifetimeStampsEarned) || 0,
-          }));
+        if (parsed && parsed.id && parsed.phone) {
+          return sanitizeCustomerForFirestore(parsed);
         }
       }
     } catch {
-      // Ignore
+      // ignore
     }
-    return INITIAL_CUSTOMERS_DATABASE;
+    return null;
   });
 
-  // Current active customer profile (Fresh personal card for real clients)
-  const [customer, setCustomer] = useState<CustomerProfile>(() => {
+  const [dailyPass, setDailyPass] = useState<DailyPassConfig>(() => {
     try {
-      const saved = localStorage.getItem(STORAGE_KEY);
+      const saved = localStorage.getItem(STORAGE_DAILY_CONFIG_KEY);
       if (saved) {
-        const parsed = JSON.parse(saved);
-        if (parsed && typeof parsed === 'object') {
-          return {
-            ...createFreshGuestProfile(),
-            ...parsed,
-            rewards: Array.isArray(parsed.rewards) ? parsed.rewards : [],
-            history: Array.isArray(parsed.history) ? parsed.history : [],
-            currentStamps: Number(parsed.currentStamps) || 0,
-            completedCardsCount: Number(parsed.completedCardsCount) || 0,
-            lifetimeStampsEarned: Number(parsed.lifetimeStampsEarned) || 0,
-          };
+        const parsed = JSON.parse(saved) as DailyPassConfig;
+        if (parsed && parsed.dateStr === getTodayDateString()) {
+          return parsed;
         }
       }
     } catch {
-      // Ignore
+      // ignore
     }
-    return createFreshGuestProfile();
+    return createDefaultDailyPass();
   });
 
-  const [storeReward, setStoreReward] = useState<StoreRewardConfig>(() => {
-    try {
-      const saved = localStorage.getItem(REWARD_CONFIG_KEY);
-      if (saved) return JSON.parse(saved);
-    } catch {
-      // Ignore
-    }
-    return DEFAULT_STORE_REWARD;
-  });
-
-  const [activeTab, setActiveTab] = useState<ActiveTabType>('stamp_card');
-  const [toast, setToast] = useState<ToastState | null>(null);
+  const [activeTab, setActiveTabState] = useState<ActiveTab>('card');
   const [isScannerOpen, setIsScannerOpen] = useState(false);
-  const [isConfigRewardOpen, setIsConfigRewardOpen] = useState(false);
-  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
-  const [isRegistrationOverlayOpen, setIsRegistrationOverlayOpen] = useState(false);
-  const [pendingFirstScan, setPendingFirstScan] = useState(false);
-  const [pendingActionAfterRegistration, setPendingActionAfterRegistration] = useState<'open_scanner' | null>(null);
-
-  // Determine if visitor has an active registered customer session
-  const hasActiveSession = Boolean(
-    customer &&
-    customer.isRegistered === true &&
-    customer.phone &&
-    customer.phone.replace(/\D/g, '').length >= 9 &&
-    customer.name &&
-    customer.name !== 'Novo Cliente' &&
-    customer.name !== 'Cliente Pitstop' &&
-    customer.name !== 'Cliente VIP'
-  );
-
-  // Automatically trigger 'New Customer Registration' overlay if visitor has no active session
-  useEffect(() => {
-    if (!hasActiveSession) {
-      setIsRegistrationOverlayOpen(true);
-    }
-  }, [hasActiveSession]);
-
-  const handleSetIsScannerOpen = (open: boolean) => {
-    if (open && !hasActiveSession) {
-      setPendingActionAfterRegistration('open_scanner');
-      setIsRegistrationOverlayOpen(true);
-      showToast('Registo Prévio Obrigatório', 'Registe o seu nome e telemóvel para abrir o leitor e ganhar carimbos!', 'info');
-      return;
-    }
-    setIsScannerOpen(open);
-  };
-
+  const [isRegistrationOpen, setIsRegistrationOpen] = useState(false);
+  const [isStaffPinModalOpen, setIsStaffPinModalOpen] = useState(false);
   const [isStaffAuthenticated, setIsStaffAuthenticated] = useState<boolean>(() => {
     try {
-      return sessionStorage.getItem(STAFF_AUTH_KEY) === 'true';
+      return sessionStorage.getItem(STORAGE_STAFF_AUTH_KEY) === 'true';
     } catch {
       return false;
     }
   });
-  const [isStaffLoginModalOpen, setIsStaffLoginModalOpen] = useState(false);
-  const [scannedStampModal, setScannedStampModal] = useState<ScannedStampModalState>({
-    isOpen: false,
-    newStampsCount: 0,
-    totalCards: 0,
-    isRewardUnlocked: false,
-    rewardTitle: '',
-  });
+  const [allCustomers, setAllCustomers] = useState<Customer[]>([]);
+  const [toast, setToast] = useState<ToastMessage | null>(null);
+  const [lastPunchedIndex, setLastPunchedIndex] = useState<number | null>(null);
+  const [pendingTokenFromUrl, setPendingTokenFromUrl] = useState<string | null>(null);
 
-  // Diagnostic Monitor & Hydration Control
+  // Diagnostic Monitor & Hydration State
   const [isHydrated, setIsHydrated] = useState<boolean>(false);
-  const [initializationStage, setInitializationStage] = useState<string>('A inicializar base de dados');
+  const [initializationStage, setInitializationStage] = useState<string>('A inicializar clube de fidelização...');
   const [initializationLogs, setInitializationLogs] = useState<string[]>([]);
 
   const logStep = useCallback((step: string, details?: Record<string, unknown>) => {
@@ -222,43 +176,32 @@ export const LoyaltyProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const retryInitialization = useCallback(() => {
     console.group('%c[LoyaltyProvider Monitor] Re-executando Sequência de Inicialização...', 'color: #f59e0b; font-weight: bold;');
-    logStep('Reinicialização manual solicitada pelo utilizador');
+    logStep('Reinicialização manual solicitada');
     try {
-      const saved = localStorage.getItem(STORAGE_KEY);
+      const saved = localStorage.getItem(STORAGE_CUSTOMER_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (parsed && typeof parsed === 'object') {
-          setCustomer({
-            ...createFreshGuestProfile(),
-            ...parsed,
-            rewards: Array.isArray(parsed.rewards) ? parsed.rewards : [],
-            history: Array.isArray(parsed.history) ? parsed.history : [],
-          });
-          logStep('Cache de cliente restaurada com sucesso', { id: parsed.id });
+        if (parsed && parsed.id && parsed.phone) {
+          setCustomer(sanitizeCustomerForFirestore(parsed));
+          logStep('Cache de cliente restaurada', { id: parsed.id });
         }
-      } else {
-        setCustomer(createFreshGuestProfile());
-        logStep('Novo perfil de convidado gerado');
       }
     } catch (err) {
       logStep('Aviso na recuperação de cache local', { error: String(err) });
-      setCustomer(createFreshGuestProfile());
     }
-    logStep('Estado hidratado com sucesso.');
     setIsHydrated(true);
     console.groupEnd();
   }, [logStep]);
 
   useEffect(() => {
-    console.group('%c[LoyaltyProvider Monitor] A iniciar monitor de diagnóstico...', 'color: #f59e0b; font-weight: bold;');
-    logStep('1/4: A carregar dados do armazenamento local (localStorage)');
+    console.group('%c[LoyaltyProvider Monitor] A iniciar monitor de fidelização...', 'color: #f59e0b; font-weight: bold;');
+    logStep('1/4: A carregar dados do armazenamento local');
 
-    const hasCustomer = Boolean(localStorage.getItem(STORAGE_KEY));
-    const hasDB = Boolean(localStorage.getItem(DATABASE_STORAGE_KEY));
-    logStep('2/4: Verificação de integridade dos dados', { hasCustomer, hasDB });
+    const hasCustomer = Boolean(localStorage.getItem(STORAGE_CUSTOMER_KEY));
+    logStep('2/4: Verificação de sessão de cliente', { hasCustomer });
 
     if (db) {
-      logStep('3/4: Firebase Firestore disponível - Sincronização em background');
+      logStep('3/4: Firebase Firestore disponível (sincronização em tempo real ativa)');
     } else {
       logStep('3/4: Modo Offline-First ativo (Persistência local)');
     }
@@ -267,17 +210,17 @@ export const LoyaltyProvider: React.FC<{ children: React.ReactNode }> = ({ child
       logStep('4/4: Interface pronta e totalmente hidratada');
       setIsHydrated(true);
       console.groupEnd();
-    }, 150);
+    }, 120);
 
     const safetyTimer = setTimeout(() => {
       setIsHydrated((prev) => {
         if (!prev) {
-          console.warn('[LoyaltyProvider Monitor] Tempo limite de espera atingido. Forçando hidratação segura.');
+          console.warn('[LoyaltyProvider Monitor] Timeout atingido. Forçando hidratação segura.');
           return true;
         }
         return prev;
       });
-    }, 2500);
+    }, 2000);
 
     return () => {
       clearTimeout(timer);
@@ -285,596 +228,710 @@ export const LoyaltyProvider: React.FC<{ children: React.ReactNode }> = ({ child
     };
   }, [logStep]);
 
-  // Track if QR scan was processed on page load
-  const hasProcessedScanRef = useRef(false);
+  const showToast = useCallback(
+    (title: string, message: string, type: ToastMessage['type'] = 'success') => {
+      setToast({
+        id: `toast-${Date.now()}`,
+        title,
+        message,
+        type,
+      });
+    },
+    []
+  );
 
-  // Sync active customer to local storage
+  const dismissToast = useCallback(() => setToast(null), []);
+
+  useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(() => setToast(null), 4500);
+    return () => clearTimeout(timer);
+  }, [toast]);
+
+  // Persist customer locally
   useEffect(() => {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(customer));
+      if (customer) {
+        localStorage.setItem(STORAGE_CUSTOMER_KEY, JSON.stringify(customer));
+      } else {
+        localStorage.removeItem(STORAGE_CUSTOMER_KEY);
+      }
     } catch {
-      // Ignore
+      // ignore
     }
   }, [customer]);
 
-  // Sync database to local storage
+  // Persist dailyPass locally
   useEffect(() => {
     try {
-      localStorage.setItem(DATABASE_STORAGE_KEY, JSON.stringify(customersDatabase));
+      localStorage.setItem(STORAGE_DAILY_CONFIG_KEY, JSON.stringify(dailyPass));
     } catch {
-      // Ignore
+      // ignore
     }
-  }, [customersDatabase]);
+  }, [dailyPass]);
 
-  // Real-time Firestore synchronization
+  // Real-time sync of DailyPassConfig from Firestore (/store_config/daily_pass)
   useEffect(() => {
     if (!db) return;
-    let unsubscribe: (() => void) | undefined;
-    try {
-      const customersRef = collection(db, 'customers');
-      unsubscribe = onSnapshot(
-        customersRef,
-        (snapshot) => {
-          if (!snapshot.empty) {
-            const list: CustomerProfile[] = [];
-            snapshot.forEach((docSnap) => {
-              const data = docSnap.data() as CustomerProfile;
-              list.push({
-                ...data,
-                rewards: Array.isArray(data?.rewards) ? data.rewards : [],
-                history: Array.isArray(data?.history) ? data.history : [],
-                currentStamps: Number(data?.currentStamps) || 0,
-                completedCardsCount: Number(data?.completedCardsCount) || 0,
-                lifetimeStampsEarned: Number(data?.lifetimeStampsEarned) || 0,
-              });
-            });
-            setCustomersDatabase(list);
-          } else {
-            // If Firestore is empty, seed with initial demo customers
-            INITIAL_CUSTOMERS_DATABASE.forEach((c) => {
-              if (db) setDoc(doc(db, 'customers', c.id), c).catch(() => {});
-            });
+    const configRef = doc(db, 'store_config', 'daily_pass');
+    const unsubscribe = onSnapshot(
+      configRef,
+      async (snapshot) => {
+        const today = getTodayDateString();
+        if (!snapshot.exists()) {
+          const fresh = sanitizeDailyPassForFirestore(createDefaultDailyPass());
+          setDailyPass(fresh);
+          try {
+            await setDoc(configRef, fresh);
+          } catch (err) {
+            handleFirestoreError(err, OperationType.WRITE, 'store_config/daily_pass');
           }
-        },
-        (error) => {
-          console.warn('[Firestore] sync note:', error.message);
+          return;
         }
-      );
-    } catch (e) {
-      console.warn('[Firestore] init note:', e);
-    }
 
-    return () => {
-      if (unsubscribe) unsubscribe();
-    };
+        const data = sanitizeDailyPassForFirestore(snapshot.data() as DailyPassConfig);
+        // Auto-rollover if the stored pass is from an older date!
+        if (data.dateStr !== today) {
+          const creds = generateDailyCredentials(today);
+          const rolledOver: DailyPassConfig = sanitizeDailyPassForFirestore({
+            ...data,
+            dateStr: today,
+            qrToken: creds.qrToken,
+            manualCode: creds.manualCode,
+            generatedAt: Date.now(),
+          });
+          setDailyPass(rolledOver);
+          try {
+            await setDoc(configRef, rolledOver);
+          } catch (err) {
+            handleFirestoreError(err, OperationType.WRITE, 'store_config/daily_pass');
+          }
+        } else {
+          setDailyPass(data);
+        }
+      },
+      (err) => {
+        handleFirestoreError(err, OperationType.GET, 'store_config/daily_pass');
+      }
+    );
+
+    return () => unsubscribe();
   }, []);
 
-  // Sync reward config to local storage
+  // Real-time sync for the currently active customer document
   useEffect(() => {
-    try {
-      localStorage.setItem(REWARD_CONFIG_KEY, JSON.stringify(storeReward));
-    } catch {
-      // Ignore
-    }
-  }, [storeReward]);
+    if (!customer?.id || !db) return;
+    const custRef = doc(db, 'customers', customer.id);
+    const unsubscribe = onSnapshot(
+      custRef,
+      (snapshot) => {
+        if (snapshot.exists()) {
+          const remote = sanitizeCustomerForFirestore(snapshot.data() as Customer);
+          setCustomer(remote);
+        }
+      },
+      (err) => {
+        handleFirestoreError(err, OperationType.GET, `customers/${customer.id}`);
+      }
+    );
 
-  const showToast = (title: string, message: string, type: 'success' | 'info' | 'reward' = 'success') => {
-    setToast({ title, message, type });
-  };
+    return () => unsubscribe();
+  }, [customer?.id]);
 
-  const dismissToast = () => {
-    setToast(null);
-  };
-
+  // Real-time sync of all customers ONLY when Staff Mode is authenticated
   useEffect(() => {
-    if (toast) {
-      const timer = setTimeout(() => {
-        setToast(null);
-      }, 4200);
-      return () => clearTimeout(timer);
+    if (!isStaffAuthenticated || !db) {
+      setAllCustomers([]);
+      return;
     }
-  }, [toast]);
 
-  const selectCustomerProfile = (profileId: string) => {
-    const found = customersDatabase.find((p) => p.id === profileId);
-    if (found) {
-      setCustomer(found);
-      showToast(
-        'Cliente Selecionado',
-        `A visualizar o cartão de ${found.name} (${found.currentStamps}/8 carimbos).`,
-        'info'
-      );
-    }
-  };
+    const colRef = collection(db, 'customers');
+    const unsubscribe = onSnapshot(
+      colRef,
+      (snapshot) => {
+        const list: Customer[] = [];
+        snapshot.forEach((docSnap) => {
+          list.push(sanitizeCustomerForFirestore(docSnap.data() as Customer));
+        });
+        list.sort((a, b) => (b.lastScanTimestamp || 0) - (a.lastScanTimestamp || 0));
+        setAllCustomers(list);
+      },
+      (err) => {
+        handleFirestoreError(err, OperationType.LIST, 'customers');
+      }
+    );
 
-  const updateStoreReward = (config: StoreRewardConfig) => {
-    setStoreReward(config);
-    showToast('Oferta Atualizada', `O 8º mimo é agora: ${config.treatTitle}`, 'success');
-  };
+    return () => unsubscribe();
+  }, [isStaffAuthenticated]);
 
-  const registerCustomerSession = (name: string, phone: string) => {
-    const formattedName = name.trim() || 'Cliente VIP';
-    const formattedPhone = phone.trim();
-    const cleanDigits = formattedPhone.replace(/\D/g, '');
-
-    // Check if phone matches an existing account in database
-    if (cleanDigits) {
-      const existing = customersDatabase.find((c) => {
-        if (!c.phone) return false;
-        return c.phone.replace(/\D/g, '') === cleanDigits;
-      });
-
-      if (existing) {
-        // Recover existing account and merge any pending stamp
-        const updated: CustomerProfile = {
-          ...existing,
-          name: formattedName || existing.name,
-          currentStamps: Math.min(8, existing.currentStamps + (pendingFirstScan ? 1 : 0)),
-          lifetimeStampsEarned: existing.lifetimeStampsEarned + (pendingFirstScan ? 1 : 0),
-          lastScanTimestamp: Date.now(),
-          isRegistered: true,
-        };
-        setCustomer(updated);
-        try {
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-        } catch {
-          // Ignore
-        }
-        setCustomersDatabase((dbList) => dbList.map((c) => (c.id === existing.id ? updated : c)));
-        if (db) setDoc(doc(db, 'customers', updated.id), updated).catch(() => {});
-        setIsRegistrationOverlayOpen(false);
-        showToast(
-          'Bem-vindo de Volta!',
-          `Conta recuperada de ${existing.name}. Saldo: ${updated.currentStamps}/8 carimbos.`,
-          'success'
-        );
-
-        if (pendingFirstScan) {
-          setPendingFirstScan(false);
-        } else if (pendingActionAfterRegistration === 'open_scanner') {
-          setPendingActionAfterRegistration(null);
-          setTimeout(() => setIsScannerOpen(true), 350);
-        }
+  const setActiveTab = useCallback(
+    (tab: ActiveTab) => {
+      if ((tab === 'staff' || tab === 'poster') && !isStaffAuthenticated) {
+        setIsStaffPinModalOpen(true);
         return;
       }
-    }
+      setActiveTabState(tab);
+    },
+    [isStaffAuthenticated]
+  );
 
-    const memberNumber = Math.floor(10000 + Math.random() * 90000);
-    const newProfile: CustomerProfile = {
-      id: `cust-${Date.now()}`,
-      name: formattedName,
-      phone: formattedPhone,
-      email: '',
-      memberId: `PIT-${memberNumber}`,
-      memberSince: 'Hoje',
-      currentStamps: pendingFirstScan ? 1 : 0,
-      completedCardsCount: 0,
-      lifetimeStampsEarned: pendingFirstScan ? 1 : 0,
-      rewards: [],
-      history: pendingFirstScan
-        ? [
-            {
-              id: `stamp-${Date.now()}`,
-              timestamp: Date.now(),
-              source: 'qr_counter_scan',
-              note: '1º Carimbo Registado (Ativação)',
-            },
-          ]
-        : [],
-      isRegistered: true,
-    };
+  // Core helper to apply +1 stamp to a customer record (ONLY via Daily QR or Daily Code)
+  const applyStampToCustomerRecord = useCallback(
+    async (
+      targetCustomer: Customer,
+      source: 'qr_counter_scan' | 'counter_code',
+      note: string
+    ): Promise<Customer> => {
+      const today = getTodayDateString();
+      const nextStamps = targetCustomer.currentStamps + 1;
+      let finalStamps = nextStamps;
+      let nextCompletedCards = targetCustomer.completedCardsCount;
+      const nextRewards = [...targetCustomer.rewards];
+      let unlockedReward = false;
 
-    setCustomer(newProfile);
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(newProfile));
-    } catch {
-      // Ignore
-    }
-
-    setCustomersDatabase((dbList) => [newProfile, ...dbList]);
-    if (db) setDoc(doc(db, 'customers', newProfile.id), newProfile).catch(() => {});
-
-    setIsRegistrationOverlayOpen(false);
-
-    if (pendingFirstScan) {
-      setPendingFirstScan(false);
-      showToast(
-        '🎉 1º Carimbo Creditado!',
-        `Bem-vindo(a), ${formattedName}! O seu cartão está pronto com 1 carimbo.`,
-        'success'
-      );
-      setScannedStampModal({
-        isOpen: true,
-        newStampsCount: 1,
-        totalCards: 0,
-        isRewardUnlocked: false,
-        rewardTitle: storeReward.treatTitle,
-      });
-    } else {
-      showToast(
-        'Cartão Ativado!',
-        `Bem-vindo(a), ${formattedName}! O seu cartão está pronto a carimbar.`,
-        'success'
-      );
-      if (pendingActionAfterRegistration === 'open_scanner') {
-        setPendingActionAfterRegistration(null);
-        setTimeout(() => setIsScannerOpen(true), 350);
-      }
-    }
-  };
-
-  const updateCustomerProfile = (name: string, phone: string) => {
-    registerCustomerSession(name, phone);
-  };
-
-  const loginStaffWithPin = (pin: string): boolean => {
-    if (pin.trim() === DEFAULT_STAFF_PIN) {
-      setIsStaffAuthenticated(true);
-      try {
-        sessionStorage.setItem(STAFF_AUTH_KEY, 'true');
-      } catch {
-        // Ignore
-      }
-      setIsStaffLoginModalOpen(false);
-      setActiveTab('owner_dashboard');
-      showToast('Acesso de Caixa Autorizado', 'Sessão iniciada com sucesso.', 'success');
-      return true;
-    }
-    showToast('PIN Incorreto', 'O PIN inserido não está correto. Tente novamente.', 'info');
-    return false;
-  };
-
-  const logoutStaff = () => {
-    setIsStaffAuthenticated(false);
-    try {
-      sessionStorage.removeItem(STAFF_AUTH_KEY);
-    } catch {
-      // Ignore
-    }
-    setActiveTab('stamp_card');
-    showToast('Sessão Bloqueada', 'Regressou ao modo do cliente.', 'info');
-  };
-
-  // Helper to punch a customer in the database directly from staff/manager view
-  const punchCustomerStampInDatabase = (customerId: string) => {
-    soundFX.playPunch();
-
-    setCustomersDatabase((prevDb) => {
-      return prevDb.map((c) => {
-        if (c.id !== customerId) return c;
-
-        const newTotal = c.currentStamps + 1;
-        let newCurrentStamps = newTotal;
-        let newCompletedCards = c.completedCardsCount;
-        const updatedRewards = [...c.rewards];
-
-        if (newTotal >= 8) {
-          newCompletedCards += 1;
-          newCurrentStamps = 0;
-          const voucherNumber = 100 + updatedRewards.length + 1;
-          updatedRewards.unshift({
-            id: `rew-${Date.now()}`,
-            title: storeReward.treatTitle,
-            description: storeReward.treatDescription,
-            code: `TREAT-${voucherNumber}`,
-            issuedAt: Date.now(),
-            expiresAt: Date.now() + 86400000 * 30,
-            isRedeemed: false,
-          });
-        }
-
-        const newHistoryItem: StampRecord = {
-          id: `stamp-${Date.now()}`,
-          timestamp: Date.now(),
-          source: 'staff_punch',
-          note: 'Carimbo manual no balcão (+1)',
-        };
-
-        const updatedCustomer: CustomerProfile = {
-          ...c,
-          currentStamps: newCurrentStamps,
-          completedCardsCount: newCompletedCards,
-          lifetimeStampsEarned: c.lifetimeStampsEarned + 1,
-          rewards: updatedRewards,
-          history: [newHistoryItem, ...c.history],
-          lastScanTimestamp: Date.now(),
-        };
-
-        // If this customer is currently active, sync it
-        if (customer.id === customerId) {
-          setCustomer(updatedCustomer);
-        }
-
-        if (db) setDoc(doc(db, 'customers', updatedCustomer.id), updatedCustomer).catch(() => {});
-
-        return updatedCustomer;
-      });
-    });
-
-    showToast('Carimbo Atribuído', 'Mais 1 carimbo registado na base de dados.', 'success');
-  };
-
-  const createCustomerInDatabase = (name: string, phone: string, initialStamps: number = 1): CustomerProfile => {
-    const newId = `cust-${Date.now().toString().slice(-4)}`;
-    const memberNumber = Math.floor(10000 + Math.random() * 90000);
-
-    const newCustomer: CustomerProfile = {
-      id: newId,
-      name: name.trim() || 'Novo Cliente',
-      phone: phone.trim(),
-      email: `${name.toLowerCase().replace(/\s+/g, '')}@cliente.pt`,
-      memberId: `COFFEE-${memberNumber}`,
-      memberSince: 'Hoje',
-      currentStamps: initialStamps,
-      completedCardsCount: 0,
-      lifetimeStampsEarned: initialStamps,
-      rewards: [],
-      history: [
-        {
-          id: `hist-${Date.now()}`,
-          timestamp: Date.now(),
-          source: 'staff_punch',
-          note: `Conta criada com ${initialStamps} carimbo(s)`,
-        },
-      ],
-      lastScanTimestamp: Date.now(),
-    };
-
-    setCustomersDatabase((prev) => [newCustomer, ...prev]);
-    setCustomer(newCustomer);
-    if (db) setDoc(doc(db, 'customers', newCustomer.id), newCustomer).catch(() => {});
-    showToast('Cliente Criado', `${newCustomer.name} adicionado à base de dados com ${initialStamps} carimbo!`, 'success');
-    return newCustomer;
-  };
-
-  const redeemCustomerRewardInDatabase = (customerId: string, rewardId: string) => {
-    soundFX.playScanBeep();
-    setCustomersDatabase((prev) =>
-      prev.map((c) => {
-        if (c.id !== customerId) return c;
-        const updated = {
-          ...c,
-          rewards: c.rewards.map((r) =>
-            r.id === rewardId ? { ...r, isRedeemed: true, redeemedAt: Date.now() } : r
-          ),
-        };
-        if (customer.id === customerId) setCustomer(updated);
-        if (db) setDoc(doc(db, 'customers', updated.id), updated).catch(() => {});
-        return updated;
-      })
-    );
-    showToast('Oferta Entregue!', 'Vale descontado com sucesso no balcão.', 'info');
-  };
-
-  const deleteCustomerFromDatabase = (customerId: string) => {
-    if (db) deleteDoc(doc(db, 'customers', customerId)).catch(() => {});
-    setCustomersDatabase((prev) => {
-      const filtered = prev.filter((c) => c.id !== customerId);
-      if (filtered.length > 0 && customer.id === customerId) {
-        setCustomer(filtered[0]);
-      }
-      return filtered;
-    });
-    showToast('Cliente Removido', 'Registo apagado da base de dados.', 'info');
-  };
-
-  const resetDatabaseToDefaults = () => {
-    setCustomersDatabase(INITIAL_CUSTOMERS_DATABASE);
-    setCustomer(INITIAL_CUSTOMERS_DATABASE[0]);
-    showToast('Base de Dados Reiniciada', 'Dados de teste repostos.', 'info');
-  };
-
-  // Exactly 1 stamp per scan on current customer
-  const addSingleStamp = (
-    source: 'qr_counter_scan' | 'counter_code' | 'staff_punch' = 'qr_counter_scan',
-    note?: string
-  ) => {
-    soundFX.playPunch();
-
-    setCustomer((prev) => {
-      const newTotal = prev.currentStamps + 1;
-      let newCurrentStamps = newTotal;
-      let newCompletedCards = prev.completedCardsCount;
-      const updatedRewards = [...prev.rewards];
-      let unlockedNewReward = false;
-
-      // Card completes at 8 stamps
-      if (newTotal >= 8) {
-        unlockedNewReward = true;
-        newCompletedCards += 1;
-        newCurrentStamps = 0; // Fresh new card
-
-        const voucherNumber = 100 + updatedRewards.length + 1;
-        const newVoucher: RewardVoucher = {
+      if (nextStamps >= 8) {
+        unlockedReward = true;
+        finalStamps = 0;
+        nextCompletedCards += 1;
+        const codeSuffix = Math.floor(1000 + Math.random() * 9000);
+        nextRewards.unshift({
           id: `rew-${Date.now()}`,
-          title: storeReward.treatTitle,
-          description: storeReward.treatDescription,
-          code: `TREAT-${voucherNumber}`,
+          title: dailyPass.treatTitle.slice(0, 80),
+          description: dailyPass.treatDescription.slice(0, 160),
+          code: `VALE-${codeSuffix}`,
           issuedAt: Date.now(),
-          expiresAt: Date.now() + 86400000 * 30, // 30 days
+          expiresAt: Date.now() + 30 * 24 * 60 * 60 * 1000,
           isRedeemed: false,
-        };
-        updatedRewards.unshift(newVoucher);
+        });
       }
 
-      const newHistoryItem: StampRecord = {
+      const newEntry = {
         id: `stamp-${Date.now()}`,
         timestamp: Date.now(),
         source,
-        note: note || (source === 'qr_counter_scan' ? 'Leitura QR Balcão (+1 Carimbo)' : 'Carimbo no Balcão (+1)'),
+        note,
       };
 
-      const lifetime = prev.lifetimeStampsEarned + 1;
-
-      // Pop the prominent scan confirmation dialog
-      setScannedStampModal({
-        isOpen: true,
-        newStampsCount: newCurrentStamps,
-        totalCards: newCompletedCards,
-        isRewardUnlocked: unlockedNewReward,
-        rewardTitle: storeReward.treatTitle,
+      const updated: Customer = sanitizeCustomerForFirestore({
+        ...targetCustomer,
+        currentStamps: finalStamps,
+        completedCardsCount: nextCompletedCards,
+        lifetimeStampsEarned: targetCustomer.lifetimeStampsEarned + 1,
+        lastStampedDate: today,
+        lastScanTimestamp: Date.now(),
+        rewards: nextRewards,
+        history: [newEntry, ...targetCustomer.history],
       });
 
-      if (unlockedNewReward) {
-        setTimeout(() => {
-          soundFX.playRewardChime();
-          confetti({
-            particleCount: 110,
-            spread: 70,
-            origin: { y: 0.6 },
-            colors: ['#78350f', '#d97706', '#f59e0b', '#10b981'],
-          });
-        }, 200);
+      if (db) {
+        const custRef = doc(db, 'customers', updated.id);
+        try {
+          await setDoc(custRef, updated);
+        } catch (err) {
+          handleFirestoreError(err, OperationType.WRITE, `customers/${updated.id}`);
+        }
+      }
 
+      if (customer?.id === updated.id) {
+        setCustomer(updated);
+        setLastPunchedIndex(unlockedReward ? 7 : finalStamps - 1);
+        setTimeout(() => setLastPunchedIndex(null), 900);
+      }
+
+      if (unlockedReward) {
+        sound.playRewardChime();
+        confetti({
+          particleCount: 100,
+          spread: 70,
+          origin: { y: 0.6 },
+          colors: ['#78350f', '#d97706', '#f59e0b', '#059669'],
+        });
         showToast(
           '🎉 8 Carimbos Completos!',
-          `Desbloqueou a oferta de "${storeReward.treatTitle}". Vale adicionado à sua carteira!`,
+          `Parabéns! Ganhou um vale para "${dailyPass.treatTitle}". Consulte a aba Vales de Oferta.`,
           'reward'
         );
       } else {
+        sound.playPunch();
         showToast(
           '+1 Carimbo Registado!',
-          `Carimbo adicionado ao cartão de ${prev.name} (${newCurrentStamps}/8 preenchidos).`,
+          `Carimbo validado com sucesso (${finalStamps}/8 no cartão atual).`,
           'success'
         );
       }
 
-      const updatedCustomer: CustomerProfile = {
-        ...prev,
-        currentStamps: newCurrentStamps,
-        completedCardsCount: newCompletedCards,
-        lifetimeStampsEarned: lifetime,
-        rewards: updatedRewards,
-        history: [newHistoryItem, ...prev.history],
-        lastScanTimestamp: Date.now(),
-      };
+      return updated;
+    },
+    [customer?.id, dailyPass.treatDescription, dailyPass.treatTitle, showToast]
+  );
 
-      // Keep database in sync
-      setCustomersDatabase((db) =>
-        db.map((c) => (c.id === prev.id ? updatedCustomer : c))
-      );
-
-      if (db) setDoc(doc(db, 'customers', updatedCustomer.id), updatedCustomer).catch(() => {});
-
-      // If customer has no phone registered yet (first scan!), open registration onboarding modal
-      if (!prev.phone) {
-        setTimeout(() => {
-          setIsProfileModalOpen(true);
-        }, 1300);
+  // Validate a scanned QR payload or manual code against today's DailyPassConfig
+  const validateAndApplyDailyScan = useCallback(
+    async (
+      scannedInput: string,
+      source: 'qr_counter_scan' | 'counter_code'
+    ): Promise<{ ok: boolean; reason?: string }> => {
+      const raw = scannedInput.trim();
+      if (!raw) {
+        return { ok: false, reason: 'Nenhum código detetado.' };
       }
 
-      return updatedCustomer;
-    });
-  };
-
-  // Handle URL query parameters for instant scan (?scan=counter or #scan=counter)
-  useEffect(() => {
-    if (hasProcessedScanRef.current) return;
-
-    try {
-      const search = window.location.search || '';
-      const hash = window.location.hash || '';
-      const isScanRequest =
-        search.includes('scan=counter') ||
-        search.includes('stamp=true') ||
-        hash.includes('scan=counter') ||
-        hash.includes('stamp=true');
-
-      if (isScanRequest) {
-        hasProcessedScanRef.current = true;
-        window.history.replaceState({}, document.title, window.location.pathname);
-        if (!hasActiveSession) {
-          // Block awarding stamp until visitor registers their name and phone
-          setPendingFirstScan(true);
-          setIsRegistrationOverlayOpen(true);
-          showToast('1º Carimbo Detetado!', 'Registe o seu nome e telemóvel para creditar o seu 1º carimbo!', 'info');
-        } else {
-          addSingleStamp('qr_counter_scan', 'Leitura QR Balcão (+1 Carimbo)');
+      // Extract dailyToken if scanning a full URL (e.g. https://.../?dailyToken=PITSTOP_DAILY_...)
+      let extractedToken = raw;
+      try {
+        if (raw.startsWith('http://') || raw.startsWith('https://')) {
+          const url = new URL(raw);
+          const paramToken = url.searchParams.get('dailyToken');
+          if (paramToken) {
+            extractedToken = paramToken;
+          }
         }
+      } catch {
+        // Not a URL, keep raw string
+      }
+
+      const normalizedInput = extractedToken.toUpperCase();
+      const validQrToken = dailyPass.qrToken.toUpperCase();
+      const validManualCode = dailyPass.manualCode.toUpperCase();
+
+      const isMatch =
+        normalizedInput === validQrToken ||
+        normalizedInput === validManualCode;
+
+      if (!isMatch) {
+        sound.playErrorBeep();
+        // Check if it looks like an old Pitstop daily QR from a previous day
+        if (normalizedInput.startsWith('PITSTOP_DAILY_') || normalizedInput.startsWith('PIT-')) {
+          const msg = 'Este código pertence a outro dia ou já foi substituído pelo caixa.';
+          showToast('Código Expirado', msg, 'error');
+          return { ok: false, reason: msg };
+        }
+        const msg = 'Código inválido. Aponte apenas para o QR Code Oficial do Dia no balcão.';
+        showToast('QR Code Não Reconhecido', msg, 'error');
+        return { ok: false, reason: msg };
+      }
+
+      // If user is not registered yet, hold the validated token and prompt registration
+      if (!customer) {
+        sound.playScanBeep();
+        setPendingTokenFromUrl(dailyPass.qrToken);
+        setIsScannerOpen(false);
+        setIsRegistrationOpen(true);
+        showToast(
+          'QR do Dia Validado!',
+          'Identifique-se com o seu nome e telemóvel para guardar já o seu 1.º carimbo.',
+          'info'
+        );
+        return { ok: true };
+      }
+
+      const today = getTodayDateString();
+      if (!dailyPass.allowMultiplePerDay && customer.lastStampedDate === today) {
+        sound.playErrorBeep();
+        const msg = 'Já recolheu o seu carimbo diário hoje! Volte amanhã ou peça ao operador no balcão.';
+        showToast('Limite Diário Atingido', msg, 'info');
+        return { ok: false, reason: msg };
+      }
+
+      await applyStampToCustomerRecord(
+        customer,
+        source,
+        source === 'qr_counter_scan'
+          ? `Leitura QR do Dia (${dailyPass.manualCode})`
+          : `Código do Dia (${dailyPass.manualCode})`
+      );
+
+      return { ok: true };
+    },
+    [applyStampToCustomerRecord, customer, dailyPass, showToast]
+  );
+
+  // Check URL parameters on boot (?dailyToken=...) so scanning with native phone camera works seamlessly
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const urlToken = params.get('dailyToken');
+      if (urlToken) {
+        const cleanUrl = window.location.pathname + window.location.hash;
+        window.history.replaceState({}, document.title, cleanUrl);
+        setPendingTokenFromUrl(urlToken);
       }
     } catch {
-      // Ignore
+      // ignore
     }
-  }, [hasActiveSession]);
+  }, []);
 
-  const redeemReward = (rewardId: string) => {
-    soundFX.playScanBeep();
-    setCustomer((prev) => {
-      const updatedRewards = prev.rewards.map((r) => {
-        if (r.id === rewardId) {
-          return {
-            ...r,
-            isRedeemed: true,
-            redeemedAt: Date.now(),
-          };
+  // Process pending token from native camera scan once dailyPass is ready
+  useEffect(() => {
+    if (!pendingTokenFromUrl || !dailyPass.qrToken) return;
+    if (isRegistrationOpen) return; // Waiting for user to finish registration
+    const tokenToProcess = pendingTokenFromUrl;
+    setPendingTokenFromUrl(null);
+    validateAndApplyDailyScan(tokenToProcess, 'qr_counter_scan');
+  }, [pendingTokenFromUrl, dailyPass.qrToken, isRegistrationOpen, validateAndApplyDailyScan]);
+
+  const registerOrRecoverCustomer = useCallback(
+    async (name: string, phone: string, mode: 'register' | 'recover'): Promise<boolean> => {
+      const digits = normalizePhone(phone);
+      if (digits.length < 9) {
+        showToast('Telemóvel Inválido', 'Introduza um número com pelo menos 9 dígitos.', 'error');
+        return false;
+      }
+
+      const customerId = `cust-${digits}`;
+      if (db) {
+        const custRef = doc(db, 'customers', customerId);
+        try {
+          const existingSnap = await getDoc(custRef);
+          if (existingSnap.exists()) {
+            const existingData = sanitizeCustomerForFirestore(existingSnap.data() as Customer);
+            const updatedName = mode === 'register' && name.trim() ? name.trim() : existingData.name;
+            const merged: Customer = {
+              ...existingData,
+              name: updatedName,
+            };
+            await setDoc(custRef, merged);
+            setCustomer(merged);
+            setIsRegistrationOpen(false);
+
+            if (pendingTokenFromUrl) {
+              setPendingTokenFromUrl(null);
+              const today = getTodayDateString();
+              if (dailyPass.allowMultiplePerDay || merged.lastStampedDate !== today) {
+                await applyStampToCustomerRecord(
+                  merged,
+                  'qr_counter_scan',
+                  `Leitura QR do Dia (${dailyPass.manualCode})`
+                );
+                return true;
+              }
+            }
+
+            sound.playScanBeep();
+            showToast(
+              'Cartão Recuperado!',
+              `Bem-vindo(a) de volta, ${merged.name}. Saldo: ${merged.currentStamps}/8 carimbos.`,
+              'success'
+            );
+            return true;
+          }
+
+          if (mode === 'recover') {
+            sound.playErrorBeep();
+            showToast(
+              'Cartão Não Encontrado',
+              'Não existe nenhum cartão associado a este número. Crie um novo cartão.',
+              'error'
+            );
+            return false;
+          }
+
+          // Create brand new customer
+          const cleanName = name.trim() || 'Cliente Pitstop';
+          const memberCode = `PIT-${digits.slice(-4)}-${Math.floor(10 + Math.random() * 89)}`;
+          const hasInitialStamp = !!pendingTokenFromUrl;
+          const today = getTodayDateString();
+
+          const newCustomer: Customer = sanitizeCustomerForFirestore({
+            id: customerId,
+            name: cleanName,
+            phone: phone.trim(),
+            memberId: memberCode,
+            memberSince: new Date().toLocaleDateString('pt-PT', { month: 'short', year: 'numeric' }),
+            currentStamps: hasInitialStamp ? 1 : 0,
+            completedCardsCount: 0,
+            lifetimeStampsEarned: hasInitialStamp ? 1 : 0,
+            ...(hasInitialStamp ? { lastStampedDate: today, lastScanTimestamp: Date.now() } : {}),
+            rewards: [],
+            history: hasInitialStamp
+              ? [
+                  {
+                    id: `stamp-${Date.now()}`,
+                    timestamp: Date.now(),
+                    source: 'qr_counter_scan',
+                    note: `1.º Carimbo na Ativação (${dailyPass.manualCode})`,
+                  },
+                ]
+              : [],
+          });
+
+          await setDoc(custRef, newCustomer);
+          setCustomer(newCustomer);
+          setPendingTokenFromUrl(null);
+          setIsRegistrationOpen(false);
+
+          sound.playPunch();
+          confetti({
+            particleCount: 70,
+            spread: 60,
+            origin: { y: 0.6 },
+          });
+
+          showToast(
+            hasInitialStamp ? 'Cartão Ativado + 1.º Carimbo!' : 'Cartão Digital Ativado!',
+            `Bem-vindo(a), ${cleanName}! O seu cartão está associado ao número ${phone.trim()}.`,
+            'success'
+          );
+          return true;
+        } catch (err) {
+          handleFirestoreError(err, OperationType.WRITE, `customers/${customerId}`);
+          return false;
         }
-        return r;
+      }
+
+      // Offline mode fallback
+      const cleanName = name.trim() || 'Cliente Pitstop';
+      const memberCode = `PIT-${digits.slice(-4)}-${Math.floor(10 + Math.random() * 89)}`;
+      const offlineCustomer: Customer = sanitizeCustomerForFirestore({
+        id: customerId,
+        name: cleanName,
+        phone: phone.trim(),
+        memberId: memberCode,
+        memberSince: new Date().toLocaleDateString('pt-PT', { month: 'short', year: 'numeric' }),
+        currentStamps: pendingTokenFromUrl ? 1 : 0,
+        completedCardsCount: 0,
+        lifetimeStampsEarned: pendingTokenFromUrl ? 1 : 0,
+        rewards: [],
+        history: [],
       });
-      const updated = { ...prev, rewards: updatedRewards };
-      setCustomersDatabase((db) =>
-        db.map((c) => (c.id === prev.id ? updated : c))
-      );
-      return updated;
+      setCustomer(offlineCustomer);
+      setIsRegistrationOpen(false);
+      showToast('Cartão Ativado (Modo Local)', `Bem-vindo(a), ${cleanName}!`, 'success');
+      return true;
+    },
+    [applyStampToCustomerRecord, dailyPass.allowMultiplePerDay, dailyPass.manualCode, pendingTokenFromUrl, showToast]
+  );
+
+  const logoutCustomer = useCallback(() => {
+    setCustomer(null);
+    localStorage.removeItem(STORAGE_CUSTOMER_KEY);
+    showToast('Sessão Terminada', 'Pode entrar novamente a qualquer momento com o seu telemóvel.', 'info');
+  }, [showToast]);
+
+  const authenticateStaff = useCallback(
+    (pin: string): boolean => {
+      if (pin.trim() === dailyPass.staffPin) {
+        setIsStaffAuthenticated(true);
+        try {
+          sessionStorage.setItem(STORAGE_STAFF_AUTH_KEY, 'true');
+        } catch {
+          // ignore
+        }
+        setIsStaffPinModalOpen(false);
+        setActiveTabState('staff');
+        sound.playScanBeep();
+        showToast('Modo Caixa Ativo', 'Acesso autorizado ao painel de gestão e gerador de QR do dia.', 'success');
+        return true;
+      }
+      sound.playErrorBeep();
+      showToast('PIN Incorreto', 'O código PIN de operador não coincide.', 'error');
+      return false;
+    },
+    [dailyPass.staffPin, showToast]
+  );
+
+  const logoutStaff = useCallback(() => {
+    setIsStaffAuthenticated(false);
+    try {
+      sessionStorage.removeItem(STORAGE_STAFF_AUTH_KEY);
+    } catch {
+      // ignore
+    }
+    if (activeTab === 'staff' || activeTab === 'poster') {
+      setActiveTabState('card');
+    }
+    showToast('Modo Caixa Bloqueado', 'Sessão de operador encerrada com segurança.', 'info');
+  }, [activeTab, showToast]);
+
+  const regenerateDailyPass = useCallback(async () => {
+    const today = getTodayDateString();
+    const creds = generateDailyCredentials(today);
+    const nextConfig: DailyPassConfig = sanitizeDailyPassForFirestore({
+      ...dailyPass,
+      dateStr: today,
+      qrToken: creds.qrToken,
+      manualCode: creds.manualCode,
+      generatedAt: Date.now(),
     });
+    setDailyPass(nextConfig);
 
-    showToast('Oferta Reclamada', 'Apresente este ecrã ao funcionário. Bom apetite!', 'info');
-  };
+    if (db) {
+      try {
+        await setDoc(doc(db, 'store_config', 'daily_pass'), nextConfig);
+        sound.playScanBeep();
+        showToast(
+          'Novo QR do Dia Gerado!',
+          `O código anterior foi invalidado. Novo código manual: ${creds.manualCode}`,
+          'success'
+        );
+      } catch (err) {
+        handleFirestoreError(err, OperationType.WRITE, 'store_config/daily_pass');
+      }
+    } else {
+      showToast(
+        'Novo QR Gerado (Local)',
+        `Novo código manual: ${creds.manualCode}`,
+        'success'
+      );
+    }
+  }, [dailyPass, showToast]);
 
-  const resetActiveCard = () => {
-    setCustomer((prev) => {
-      const updated = {
-        ...prev,
+  const updateDailyConfig = useCallback(
+    async (
+      updates: Partial<Pick<DailyPassConfig, 'treatTitle' | 'treatDescription' | 'allowMultiplePerDay' | 'staffPin'>>
+    ) => {
+      const nextConfig: DailyPassConfig = sanitizeDailyPassForFirestore({
+        ...dailyPass,
+        ...updates,
+      });
+      setDailyPass(nextConfig);
+
+      if (db) {
+        try {
+          await setDoc(doc(db, 'store_config', 'daily_pass'), nextConfig);
+          showToast('Configuração Guardada', 'As regras da oferta e do QR diário foram atualizadas.', 'success');
+        } catch (err) {
+          handleFirestoreError(err, OperationType.WRITE, 'store_config/daily_pass');
+        }
+      } else {
+        showToast('Configuração Guardada (Local)', 'Atualizado com sucesso.', 'success');
+      }
+    },
+    [dailyPass, showToast]
+  );
+
+  const staffRedeemVoucher = useCallback(
+    async (customerId: string, voucherId: string) => {
+      const target = allCustomers.find((c) => c.id === customerId) || (customer?.id === customerId ? customer : null);
+      if (!target) return;
+
+      const updatedRewards = target.rewards.map((r) =>
+        r.id === voucherId ? { ...r, isRedeemed: true, redeemedAt: Date.now() } : r
+      );
+
+      const updatedCustomer = sanitizeCustomerForFirestore({
+        ...target,
+        rewards: updatedRewards,
+      });
+
+      if (db) {
+        try {
+          await setDoc(doc(db, 'customers', customerId), updatedCustomer);
+          sound.playScanBeep();
+          showToast('Vale Resgatado!', `Oferta entregue a ${target.name}.`, 'success');
+        } catch (err) {
+          handleFirestoreError(err, OperationType.UPDATE, `customers/${customerId}`);
+        }
+      } else {
+        showToast('Vale Resgatado (Local)!', `Oferta entregue a ${target.name}.`, 'success');
+      }
+    },
+    [allCustomers, customer, showToast]
+  );
+
+  const staffCreateCustomer = useCallback(
+    async (name: string, phone: string) => {
+      const digits = normalizePhone(phone);
+      if (digits.length < 9) {
+        showToast('Telemóvel Inválido', 'Insira pelo menos 9 dígitos.', 'error');
+        return;
+      }
+
+      const customerId = `cust-${digits}`;
+      const memberCode = `PIT-${digits.slice(-4)}-${Math.floor(10 + Math.random() * 89)}`;
+      const newCust: Customer = sanitizeCustomerForFirestore({
+        id: customerId,
+        name: name.trim() || 'Cliente Balcão',
+        phone: phone.trim(),
+        memberId: memberCode,
+        memberSince: new Date().toLocaleDateString('pt-PT', { month: 'short', year: 'numeric' }),
         currentStamps: 0,
-      };
-      setCustomersDatabase((db) =>
-        db.map((c) => (c.id === prev.id ? updated : c))
-      );
-      return updated;
-    });
-    showToast('Cartão Reiniciado', 'Cartão reposto a 0/8 carimbos.', 'info');
-  };
+        completedCardsCount: 0,
+        lifetimeStampsEarned: 0,
+        rewards: [],
+        history: [],
+      });
+
+      if (db) {
+        const custRef = doc(db, 'customers', customerId);
+        try {
+          const existingSnap = await getDoc(custRef);
+          if (existingSnap.exists()) {
+            showToast(
+              'Cliente Já Registado',
+              'Este número já tem cartão ativo. O cliente deve ler o QR Code do Dia para receber carimbo.',
+              'info'
+            );
+            return;
+          }
+
+          await setDoc(custRef, newCust);
+          sound.playScanBeep();
+          showToast(
+            'Cliente Registado (0/8)',
+            `${newCust.name} criado. O cliente deve ler o QR do Dia no balcão para ganhar carimbos.`,
+            'success'
+          );
+        } catch (err) {
+          handleFirestoreError(err, OperationType.CREATE, `customers/${customerId}`);
+        }
+      } else {
+        showToast(
+          'Cliente Criado (Local)',
+          `${newCust.name} registado. Carimbos apenas por QR Code.`,
+          'success'
+        );
+      }
+    },
+    [showToast]
+  );
+
+  const staffDeleteCustomer = useCallback(
+    async (customerId: string) => {
+      if (db) {
+        try {
+          await deleteDoc(doc(db, 'customers', customerId));
+          if (customer?.id === customerId) {
+            setCustomer(null);
+          }
+          showToast('Registo Removido', 'Cartão de cliente eliminado.', 'info');
+        } catch (err) {
+          handleFirestoreError(err, OperationType.DELETE, `customers/${customerId}`);
+        }
+      }
+    },
+    [customer?.id, showToast]
+  );
 
   return (
     <LoyaltyContext.Provider
       value={{
         customer,
-        hasActiveSession,
-        isRegistrationOverlayOpen,
-        setIsRegistrationOverlayOpen,
-        pendingFirstScan,
-        registerCustomerSession,
+        dailyPass,
         activeTab,
         setActiveTab,
-        selectCustomerProfile,
-        customersDatabase,
-        allProfiles: customersDatabase,
-        createCustomerInDatabase,
-        punchCustomerStampInDatabase,
-        redeemCustomerRewardInDatabase,
-        deleteCustomerFromDatabase,
-        resetDatabaseToDefaults,
-        storeReward,
-        updateStoreReward,
-        addSingleStamp,
-        redeemReward,
-        resetActiveCard,
-        toast,
-        showToast,
-        dismissToast,
         isScannerOpen,
-        setIsScannerOpen: handleSetIsScannerOpen,
-        isConfigRewardOpen,
-        setIsConfigRewardOpen,
-        isProfileModalOpen,
-        setIsProfileModalOpen,
-        updateCustomerProfile,
+        setIsScannerOpen,
+        isRegistrationOpen,
+        setIsRegistrationOpen,
         isStaffAuthenticated,
-        loginStaffWithPin,
+        isStaffPinModalOpen,
+        setIsStaffPinModalOpen,
+        allCustomers,
+        toast,
+        dismissToast,
+        showToast,
+        lastPunchedIndex,
+        registerOrRecoverCustomer,
+        logoutCustomer,
+        validateAndApplyDailyScan,
+        authenticateStaff,
         logoutStaff,
-        isStaffLoginModalOpen,
-        setIsStaffLoginModalOpen,
-        scannedStampModal,
-        setScannedStampModal,
+        regenerateDailyPass,
+        updateDailyConfig,
+        staffRedeemVoucher,
+        staffCreateCustomer,
+        staffDeleteCustomer,
         isHydrated,
         initializationStage,
         initializationLogs,
@@ -886,10 +943,10 @@ export const LoyaltyProvider: React.FC<{ children: React.ReactNode }> = ({ child
   );
 };
 
-export const useLoyalty = () => {
-  const context = useContext(LoyaltyContext);
-  if (!context) {
+export function useLoyalty() {
+  const ctx = useContext(LoyaltyContext);
+  if (!ctx) {
     throw new Error('useLoyalty must be used within a LoyaltyProvider');
   }
-  return context;
-};
+  return ctx;
+}
